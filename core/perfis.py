@@ -154,7 +154,32 @@ _SCRAPERS_BR = [
     DefinicaoScraper(GupyScraper, FREQUENCIA_ALTA),        # ~2,6% de rendimento
     DefinicaoScraper(LinkedInScraper, FREQUENCIA_ALTA),     # ~8,5% — a melhor fonte de longe
     DefinicaoScraper(SolidesScraper, FREQUENCIA_ALTA),      # ~1,1%
-    DefinicaoScraper(IndeedScraper, FREQUENCIA_ALTA),       # ~1,1%
+    # Indeed SAIU dos perfis (codigo continua em scrapers/indeed.py e
+    # scrapers/indeed_intl.py, mesmo tratamento que o Trampos recebeu).
+    #
+    # MEDIDO em 3 ciclos consecutivos de producao (18/08): ZERO vaga bruta,
+    # nas duas versoes. O log nao mostra "0 resultado" — mostra timeout na
+    # PAGINA 1 de todo termo, em todos os 6 dominios de pais. Isso e
+    # bloqueio anti-bot completo, nao ausencia de vaga. O proprio scraper ja
+    # avisava do risco: IP de nuvem/datacenter (que e o do GitHub Actions) e
+    # o mais bloqueado.
+    #
+    # Custo medido no relogio do log (os scrapers rodam em PARALELO, entao o
+    # que importa e quem termina por ultimo):
+    #
+    #   Brasil        11m32s — gargalo e o LinkedIn (21:40:55), nao o Indeed
+    #                 (21:33:42). Tirar daqui nao encurta o ciclo, so para
+    #                 de gastar requisicao a toa.
+    #   Internacional 25m42s — LinkedIn Intl termina 21:47:20 e o Indeed Intl
+    #                 so 22:06:38. Ele SOZINHO estende o ciclo em 19 minutos,
+    #                 entregando zero vaga.
+    #
+    # Ciclo completo: 37m14s -> ~18m. Sao ~2h30 por dia devolvidas.
+    #
+    # Pra religar quando/se o Indeed voltar a responder: descomente as duas
+    # linhas abaixo (uma aqui, outra em _SCRAPERS_INTL). Nada mais precisa
+    # mudar — imports, config e dominios continuam no lugar.
+    # DefinicaoScraper(IndeedScraper, FREQUENCIA_ALTA),       # ~1,1%
     DefinicaoScraper(CathoScraper, FREQUENCIA_BAIXA),       # <1%, timeout frequente em headless
     DefinicaoScraper(GeekHunterScraper, FREQUENCIA_BAIXA),  # <1%
     DefinicaoScraper(Jobs99Scraper, FREQUENCIA_BAIXA),      # <1%, fonte confirmada funcionando
@@ -213,7 +238,9 @@ _REGRAS_INTL_IBERIA = RegrasFiltro(
 # como o perfil BR. Ajustar quando/se tiver dado real.
 _SCRAPERS_INTL = [
     DefinicaoScraper(LinkedInIntlScraper, FREQUENCIA_ALTA, {"locations": LOCATIONS_INTL}),
-    DefinicaoScraper(IndeedIntlScraper, FREQUENCIA_ALTA, {"dominios": DOMINIOS_INDEED_INTL}),
+    # Indeed Intl desligado — ver MEDIDO em _SCRAPERS_BR. Era o gargalo
+    # absoluto do ciclo internacional: 19 dos 25 minutos, zero vaga.
+    # DefinicaoScraper(IndeedIntlScraper, FREQUENCIA_ALTA, {"dominios": DOMINIOS_INDEED_INTL}),
     DefinicaoScraper(WeWorkRemotelyIntlScraper, FREQUENCIA_ALTA),
 ]
 

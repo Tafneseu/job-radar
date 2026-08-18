@@ -55,43 +55,68 @@ jobs:
           git config user.name "jobradar-bot"
           git config user.email "jobradar-bot@users.noreply.github.com"
 
-          git add data/jobs.db
-          if git diff --cached --quiet; then
-            echo "Nada novo pra commitar."
-            exit 0
+          # O banco produzido por ESTA execução, guardado fora da árvore do
+          # repositório. É a única coisa deste run que sobrevive ao passo
+          # abaixo — todo o resto é descartado e retomado do GitHub.
+          if [ ! -f data/jobs.db ]; then
+            echo "data/jobs.db não existe ao fim do ciclo — nada a salvar."
+            exit 1
           fi
-          git commit -m "chore: atualiza vagas vistas [skip ci]"
+          cp data/jobs.db "${RUNNER_TEMP:-/tmp}/jobs.db"
 
-          # Se outro push (execução concorrente, ou push manual) chegou
-          # primeiro, o push abaixo é rejeitado. Em vez de falhar o run
-          # (o que faria a vaga ser notificada de novo no próximo ciclo),
-          # sincroniza e tenta de novo. data/jobs.db é binário (SQLite):
-          # em caso de conflito, quem deve vencer é a versão deste run
-          # (base + vagas encontradas agora), não a de origin/main.
+          # MEDIDO (18/08): este passo usava
           #
-          # MEDIDO: estava "-X ours", que em `git merge` de fato mantém o
-          # lado local — mas em `git rebase` a semântica é invertida: o
-          # rebase reaplica os commits deste run EM CIMA de origin/main, e
-          # nesse processo "ours" passa a se referir à branch de destino
-          # (origin/main), "theirs" ao commit sendo reaplicado (este run).
-          # Confirmado com um repositório de teste isolado: rebase com
-          # "-X ours" manteve o conteúdo do upstream, descartando o local.
-          # Resultado real: toda vez que o push colidia, o jobs.db commitado
-          # voltava a ser o de origin/main — vaga encontrada e notificada
-          # neste run desaparecia do banco (reaparecia como "nova" no ciclo
-          # seguinte) e qualquer backfill de coluna (ex: chave_secundaria)
-          # também era descartado, mesmo rodando com sucesso a cada
-          # iniciar_db(). Corrigido para "-X theirs" — mesmo teste isolado,
-          # resultado contrário: manteve a versão deste run.
+          #     git rebase origin/main -X theirs
+          #
+          # pra reenviar quando o push era recusado. Na madrugada de 18/08 o
+          # histórico do repositório foi reescrito enquanto uma execução
+          # estava no ar (ela começou 21h e terminou 23h12). Ao ser recusada,
+          # ela caiu nesse rebase e REAPLICOU commits antigos por cima do
+          # estado novo, com "-X theirs" resolvendo a favor da versão do run.
+          # Resultado: main.py e core/config.py voltaram atrás e duas
+          # correções foram desfeitas em produção — descoberto só quando a
+          # usuária relatou que uma notificação parou de chegar.
+          #
+          # Prova de autoria do commit que reverteu (75de7b6): autor
+          # "liliam" (autoria original preservada no replay) mas committer
+          # "jobradar-bot", no mesmo segundo do commit deste passo.
+          #
+          # O robô não tem motivo NENHUM pra escrever arquivo de código. Em
+          # vez de reaplicar commits em cima do estado remoto, ele agora
+          # ADOTA o estado remoto inteiro e recoloca só o banco por cima.
+          # A diferença importa: reaplicar commit pode trazer junto qualquer
+          # coisa que estava naquele commit; recolocar um arquivo só não
+          # pode. Qualquer commit gerado aqui contém data/jobs.db e mais
+          # nada — verificado em simulação com divergência máxima (duas
+          # correções de código + reescrita de histórico ao mesmo tempo).
+          #
+          # Efeito colateral bom: se alguém enviar correção de código no meio
+          # de um ciclo, o robô passa a INCORPORAR essa correção em vez de
+          # disputar com ela.
           n=0
-          until git push; do
+          while :; do
+            git fetch origin main
+            git reset --hard origin/main
+
+            cp "${RUNNER_TEMP:-/tmp}/jobs.db" data/jobs.db
+            git add data/jobs.db
+
+            if git diff --cached --quiet; then
+              echo "Nada novo pra commitar."
+              exit 0
+            fi
+
+            git commit -m "chore: atualiza vagas vistas [skip ci]"
+
+            if git push; then
+              exit 0
+            fi
+
             n=$((n + 1))
             if [ "$n" -ge 5 ]; then
               echo "Push falhou depois de 5 tentativas."
               exit 1
             fi
             echo "Push rejeitado, sincronizando (tentativa $n)..."
-            git fetch origin main
-            git rebase origin/main -X theirs || git rebase --abort
             sleep $((RANDOM % 5 + 1))
           done

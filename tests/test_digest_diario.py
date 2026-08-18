@@ -145,3 +145,31 @@ def test_hora_configurada_entrega_de_manha_e_nao_de_madrugada(cenario, monkeypat
 
     _rodar(monkeypatch, hora_utc=10)  # 07h20 da manha em Brasilia
     assert len(cenario["enviadas"]) == 1, "digest tem que chegar de manha"
+
+
+# ------------------------------------------------- ALERTA DE SAUDE
+
+@pytest.mark.parametrize("com_problema, total, esperado", [
+    # 2 fontes: o caso que motivou a mudanca. Perfil Internacional ficou
+    # assim quando o Indeed foi desligado, e o WeWorkRemotely e pequeno o
+    # bastante pra voltar vazio num dia fraco.
+    (0, 2, False),
+    (1, 2, False),   # antes disparava aqui -- alerta falso
+    (2, 2, True),    # as duas cairam: e problema de verdade
+    # 3 fontes (perfil Brasil num ciclo normal): comportamento inalterado.
+    (1, 3, False),
+    (2, 3, True),
+    (3, 3, True),
+    # 7 fontes (Brasil no ciclo que roda as de baixa frequencia).
+    (3, 7, False),
+    (4, 7, True),
+    # numero par maior: fica um pouco mais exigente, de proposito.
+    (4, 8, False),
+    (5, 8, True),
+    # nenhuma fonte no ciclo: nao ha o que alertar.
+    (0, 0, False),
+])
+def test_alerta_de_saude_exige_maioria_estrita(com_problema, total, esperado):
+    """Alerta que dispara sem motivo deixa de ser lido -- e ai nao serve nem
+    quando o problema e real."""
+    assert main._deve_alertar_saude(com_problema, total) is esperado

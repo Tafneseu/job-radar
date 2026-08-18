@@ -219,6 +219,33 @@ def _enviar_digest_diario(perfil: Perfil):
         )
 
 
+def _deve_alertar_saude(com_problema: int, total: int) -> bool:
+    """A maioria ESTRITA das fontes falhou neste ciclo?
+
+    MEDIDO: a regra era ">= metade", o que com 2 fontes significa que UMA
+    sozinha ja dispara o alerta. Isso passou a importar quando o Indeed foi
+    desligado e o perfil Internacional ficou com 2 fontes: o WeWorkRemotely e
+    pequeno (5 vagas no ciclo medido, vazio em 9 dos 10 termos), entao um dia
+    mais fraco viraria "JobRadar com problema" sem haver problema nenhum.
+
+    Alerta que dispara sem motivo e pior que alerta que nao existe: depois de
+    duas ou tres vezes, ele deixa de ser lido -- e ai nao serve mais nem
+    quando o problema e real.
+
+    Maioria ESTRITA (">" em vez de ">=") resolve sem enfraquecer o resto:
+
+        2 fontes -> exige 2 (antes 1)  <- o caso que motivou a mudanca
+        3 fontes -> exige 2 (igual)
+        7 fontes -> exige 4 (igual)
+        8 fontes -> exige 5 (antes 4)
+
+    Ou seja: com 2 fontes o alerta passa a significar "as duas cairam", que e
+    o que "com problema" deveria querer dizer.
+    """
+    if total <= 0:
+        return False
+    return com_problema > total / 2
+
 def ciclo_de_busca(perfil: Perfil):
     total_novas = 0
     total_brutas = 0
@@ -388,7 +415,7 @@ def ciclo_de_busca(perfil: Perfil):
     # Telegram. Sem isso, um bloqueio geral ou mudança de layout passaria
     # despercebido — o workflow do GitHub Actions continuaria "verde" mesmo
     # com tudo quebrado.
-    if scrapers and len(scrapers_com_problema) >= len(scrapers) / 2:
+    if _deve_alertar_saude(len(scrapers_com_problema), len(scrapers)):
         enviar_mensagem(
             f"⚠️ <b>JobRadar {perfil.nome} com problema</b>\n\n"
             f"{len(scrapers_com_problema)}/{len(scrapers)} fontes falharam ou voltaram "

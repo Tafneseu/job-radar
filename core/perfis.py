@@ -30,6 +30,7 @@ from core.config import (
     ATIVAR_EIXO_IBERICO_BR,
     MERCADOS_REMOTO_ACEITOS,
     TERMOS_BUSCA,
+    TERMOS_PRIORITARIOS,
     TERMOS_POR_CICLO,
 )
 from core.config_intl import (
@@ -91,6 +92,10 @@ class Perfil:
     termos_busca: list[str]
     termos_por_ciclo: int
     definicao_scrapers: list[DefinicaoScraper]
+    # Termos fora do rodízio, buscados em TODO ciclo (ver TERMOS_PRIORITARIOS
+    # em config.py). Lista vazia = tudo entra no rodízio, que é o
+    # comportamento de antes deste campo existir (perfil internacional).
+    termos_prioritarios: list[str] = field(default_factory=list)
     max_scrapers_concorrentes: int = 4
 
 
@@ -223,6 +228,7 @@ PERFIL_BR = Perfil(
     eixo_secundario_rotulo="Ibéria",
     termos_busca=TERMOS_BUSCA,
     termos_por_ciclo=TERMOS_POR_CICLO,
+    termos_prioritarios=TERMOS_PRIORITARIOS,
     definicao_scrapers=_SCRAPERS_BR,
     max_scrapers_concorrentes=4,
 )

@@ -64,8 +64,9 @@ def _construir_scrapers(perfil: Perfil, termos_busca: list[str]):
 
 
 def _proximo_bloco_termos(perfil: Perfil) -> list[str]:
-    """Rodízio: cada ciclo pega um BLOCO fixo (perfil.termos_por_ciclo) de
-    perfil.termos_busca, começando de onde o ciclo anterior parou, e avança
+    """Termos deste ciclo: os PRIORITÁRIOS (todo ciclo, fora do rodízio) mais
+    um BLOCO fixo (perfil.termos_por_ciclo) do resto, começando de onde o
+    ciclo anterior parou e avançando
     — volta pro início quando chega no fim da lista. A posição fica salva
     no jobs.db (tabela metadados, chave com sufixo do perfil — dois perfis
     rotacionam de forma independente), então sobrevive entre execuções do
@@ -76,9 +77,21 @@ def _proximo_bloco_termos(perfil: Perfil) -> list[str]:
     continua custando o mesmo. Sem isso, dobrar a lista de termos dobrava o
     tempo de TODO ciclo.
     """
-    total = len(perfil.termos_busca)
+    # MEDIDO: uma vaga real ("Analista de Dados", JCPM Shoppings, Recife)
+    # nunca foi notificada — e nao por causa do filtro: o titulo bate a
+    # keyword mais forte da lista e Recife e uma das 8 cidades. Ela nunca
+    # chegou a ser BUSCADA. Com 44 termos e 10 por ciclo, uma volta completa
+    # leva 13 horas, e o rodizio e alfabetico: "analista de dados" disputa vez
+    # de igual pra igual com "bigquery" e "looker".
+    #
+    # perfil.termos_prioritarios sai do rodizio e entra em TODO ciclo. Os
+    # demais continuam rodando como antes, so que num conjunto menor.
+    prioritarios = [t for t in perfil.termos_prioritarios if t in perfil.termos_busca]
+    rodizio = [t for t in perfil.termos_busca if t not in prioritarios]
+
+    total = len(rodizio)
     if total == 0:
-        return []
+        return list(prioritarios)
 
     tamanho_bloco = min(perfil.termos_por_ciclo, total)
 
@@ -89,11 +102,11 @@ def _proximo_bloco_termos(perfil: Perfil) -> list[str]:
     # tamanho atual da lista quebraria o acesso por índice abaixo.
     offset = int(offset_salvo) % total if offset_salvo else 0
 
-    bloco = [perfil.termos_busca[(offset + i) % total] for i in range(tamanho_bloco)]
+    bloco = [rodizio[(offset + i) % total] for i in range(tamanho_bloco)]
 
     definir_metadado(chave_offset, str((offset + tamanho_bloco) % total))
 
-    return bloco
+    return list(prioritarios) + bloco
 
 
 def _enviar_heartbeat_diario(

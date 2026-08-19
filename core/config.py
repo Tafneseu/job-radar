@@ -143,6 +143,32 @@ TERMOS_FERRAMENTA = [
 
 TERMOS_BUSCA = TERMOS_CARGO + TERMOS_FERRAMENTA
 
+# Termos que rodam em TODO ciclo, fora do rodízio.
+#
+# MEDIDO: uma vaga real ("Analista de Dados", JCPM Shoppings, Recife) não
+# foi notificada. O título bate a keyword mais forte da lista e o local é
+# uma das 8 cidades — passaria no filtro sem esforço. Ela nunca chegou a ser
+# BUSCADA: com 44 termos e 10 por ciclo, uma volta completa leva 13 horas, e
+# o rodízio é alfabético — "analista de dados" disputa vez de igual pra igual
+# com "bigquery" e "looker". Vaga publicada logo depois da passagem do termo
+# fica invisível por meio dia, e em portal que recebe vaga o tempo todo isso
+# é tempo demais.
+#
+# Prioridade não é sobre volume, é sobre o que define o perfil: são os
+# títulos que a usuária de fato procura, e os que mais aparecem nas vagas
+# que já foram aprovadas. Passam de 1x a cada 13h para 8x por dia.
+#
+# Custo: bloco por ciclo vai de 10 para 15 termos (+50%). O ciclo medido é
+# de 18 min desde que o Indeed saiu, então cabe — antes disso, com 37 min,
+# não caberia. É essa folga que torna a mudança possível agora.
+TERMOS_PRIORITARIOS = [
+    "analista de dados",
+    "analista de bi",
+    "business intelligence",
+    "data analyst",
+    "power bi",
+]
+
 # Medido: os TERMOS_BUSCA inteiros (hoje 42) rodando em TODO ciclo é o que
 # gera as centenas de sessões de navegador por execução — o custo cresce
 # linear com o tamanho da lista, e a lista só cresce (mais ainda com a

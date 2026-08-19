@@ -52,6 +52,7 @@ from scrapers.indeed_intl import IndeedIntlScraper
 from scrapers.jobs99 import Jobs99Scraper
 from scrapers.linkedin import LinkedInScraper
 from scrapers.linkedin_intl import LinkedInIntlScraper
+from scrapers.senior import SeniorScraper
 from scrapers.solides import SolidesScraper
 from scrapers.weworkremotely_intl import WeWorkRemotelyIntlScraper
 
@@ -184,6 +185,31 @@ _SCRAPERS_BR = [
     DefinicaoScraper(GeekHunterScraper, FREQUENCIA_BAIXA),  # <1%
     DefinicaoScraper(Jobs99Scraper, FREQUENCIA_BAIXA),      # <1%, fonte confirmada funcionando
     DefinicaoScraper(WeWorkRemotelyIntlScraper, FREQUENCIA_BAIXA),  # nova, sem medição própria
+    # MEDIDO ao vivo antes de ligar (3 termos, 398 vagas brutas): rendimento
+    # de 0,3% — abaixo da Sólides (1,1%), a fonte mais fraca que ficou. A
+    # busca da API casa pedaço de palavra, não o termo: "analista bi" trouxe
+    # ANALISTA CONTÁBIL, ANALISTA DE CUSTOS, ANALISTA LOGÍSTICA. E só 1 das
+    # 398 era remota — o portal é quase todo presencial, enquanto o remoto é
+    # de onde vem a maior parte do volume deste projeto.
+    #
+    # Entra assim mesmo, e em FREQUENCIA_BAIXA, por três motivos:
+    #
+    # 1. Custo. 398 vagas em 4 SEGUNDOS, sem navegador. A Sólides gasta
+    #    minutos pra render 1,1%. Por vaga útil, a conta favorece a Senior.
+    # 2. Cobre a área mais fraca. A única aprovada foi presencial em Natal —
+    #    e vaga presencial nas 8 cidades é o que o projeto menos acha (23 em
+    #    1.279 no histórico).
+    # 3. É a única fonte com data de publicação em 100% dos registros
+    #    (398/398), contra praticamente zero nas outras.
+    #
+    # FREQUENCIA_BAIXA também porque o endpoint só foi testado de máquina
+    # doméstica: o robô roda em IP de datacenter, que foi o que derrubou o
+    # Indeed. Uma execução por dia mede sem multiplicar requisição.
+    #
+    # Critério de permanência, pra decidir por número e não por impressão
+    # (mesmo critério que manteve o 99Jobs e tirou o Trampos): se numa semana
+    # não trouxer vaga relevante das 8 cidades, sai.
+    DefinicaoScraper(SeniorScraper, FREQUENCIA_BAIXA),      # 0,3%, mas 4s e cobre cidade
 ]
 
 PERFIL_BR = Perfil(

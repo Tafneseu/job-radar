@@ -471,6 +471,59 @@ _SIGLAS_UF_BRASIL = {
 # (RJ, SP, PE...) já resolve sozinha, nenhum estado americano usa essas.
 _SIGLAS_UF_AMBIGUAS = {"al", "ma", "mt", "ms", "pa", "sc"}
 
+# MEDIDO: "CAMPINA GRANDE DO SUL - PR" era ACEITA como se fosse Campina
+# Grande/PB. Sao cidades diferentes, a 2.500 km uma da outra. O filtro de
+# cidade procura o nome dentro do texto de `local` com borda de palavra, e
+# "campina grande" tem borda valida dentro de "campina grande do sul" — o
+# nome da cidade aceita e prefixo de outra cidade real. Mesmo caso de
+# "Natal da Serra - MG" virando Natal/RN.
+#
+# Achado ao rodar uma fonte nova (Senior) que tem muita vaga de cidade
+# pequena; as fontes antigas concentram em capital e o caso quase nao
+# aparecia. Nao e bug da fonte nova: valia pra todas.
+#
+# A UF resolve sem tocar no casamento de nome: quando o texto DECLARA uma
+# sigla de estado e ela nao e a esperada pra aquela cidade, nao e a cidade
+# certa. Limite conhecido e aceito: texto SEM UF nenhuma ("Campina Grande
+# do Sul", sozinho) continua passando — sem a sigla nao ha o que comparar,
+# e inventar regra por contagem de palavras arriscaria barrar "Recife PE"
+# ou "vaga em Natal". Preferir o falso positivo raro ao falso negativo.
+_UF_DA_CIDADE = {
+    "campina grande": "pb",
+    "joao pessoa": "pb",
+    "recife": "pe",
+    "natal": "rn",
+    "caruaru": "pe",
+    "manaus": "am",
+    "maceio": "al",
+    "aracaju": "se",
+}
+
+
+def _uf_declarada(local_norm: str) -> str | None:
+    """Sigla de UF brasileira presente no texto de local, se houver.
+
+    Le os pedacos separados por virgula/hifen/barra — os formatos que as
+    fontes usam de verdade ("Natal - RN", "Recife, PE", "Recife/PE").
+    None quando nenhum pedaco e uma sigla de UF."""
+    for pedaco in re.split(r"[,\-–—/]", local_norm):
+        pedaco = pedaco.strip(" .")
+        if pedaco in _SIGLAS_UF_BRASIL:
+            return pedaco
+    return None
+
+
+def _cidade_confere(cidade_norm: str, local_norm: str) -> bool:
+    """A cidade bateu no texto — mas e a cidade certa?
+
+    Ver _UF_DA_CIDADE. So reprova quando o texto declara uma UF e ela
+    contradiz a esperada."""
+    uf_esperada = _UF_DA_CIDADE.get(cidade_norm)
+    if uf_esperada is None:
+        return True
+    uf_texto = _uf_declarada(local_norm)
+    return uf_texto is None or uf_texto == uf_esperada
+
 # Capital de cada estado brasileiro (+DF), normalizado — usado só pra
 # desambiguar as 6 siglas acima. Cobre exatamente o formato que o LinkedIn
 # mostra pra vaga remota brasileira ("Remoto (Capital, UF)"), sem precisar
@@ -1181,8 +1234,12 @@ class Job:
             if not idioma_bateu_titulo:
                 bate_remoto = False
 
+        # _cidade_confere: nome batido nao basta quando o texto declara uma
+        # UF que contradiz a cidade (ver _UF_DA_CIDADE — "Campina Grande do
+        # Sul - PR" nao e Campina Grande/PB).
         bate_cidade = bate_remoto or any(
             _contem_termo(_normalizar(c), local_norm)
+            and _cidade_confere(_normalizar(c), local_norm)
             for c in regras.cidades
             if _normalizar(c) not in _FLAGS_REMOTO
         )

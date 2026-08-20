@@ -208,3 +208,38 @@ def test_cidade_certa_com_a_uf_certa_continua_passando(local):
 ])
 def test_sem_uf_declarada_a_cidade_continua_valendo(local):
     assert _vaga("Analista de Dados", local, "Presencial").combina_com(PERFIL_BR.regras)
+
+
+# ------------- DIAGNOSTICO: barrada so pelo titulo, em cidade aceita
+
+def test_vaga_de_bi_com_nome_comercial_e_contada(): 
+    """Caso real da Lactalis: "Analista Comercial JR" em Recife, presencial.
+    O local passa, o titulo nao bate keyword nenhuma, e a descricao (que o
+    filtro nao le) tem KPIs, dashboards, Power BI e Qlik Sense."""
+    vaga = _vaga("Analista Comercial JR", "Recife, Pernambuco, Brasil", "Presencial")
+    assert not vaga.combina_com(PERFIL_BR.regras)
+    assert vaga.rejeitada_so_pelo_cargo(PERFIL_BR.regras)
+
+
+def test_vaga_aprovada_nao_e_contada():
+    vaga = _vaga("Analista de Dados", "Recife - PE", "Presencial")
+    assert vaga.combina_com(PERFIL_BR.regras)
+    assert not vaga.rejeitada_so_pelo_cargo(PERFIL_BR.regras)
+
+
+@pytest.mark.parametrize("titulo, local, modalidade", [
+    # Barrada pelo LOCAL, nao pelo titulo -- nao interessa pra essa medicao.
+    ("Analista Comercial JR", "São Paulo - SP", "Presencial"),
+    ("Vendedor Externo", "Belo Horizonte, MG", "Presencial"),
+    # Barrada pelos DOIS.
+    ("Motorista", "Curitiba - PR", "Presencial"),
+])
+def test_vaga_barrada_pelo_local_nao_e_contada(titulo, local, modalidade):
+    assert not _vaga(titulo, local, modalidade).rejeitada_so_pelo_cargo(PERFIL_BR.regras)
+
+
+def test_conta_vaga_remota_com_titulo_fora(): 
+    """Remoto tambem e "local aceito" -- vaga remota de titulo generico entra
+    na contagem pelo mesmo motivo."""
+    vaga = _vaga("Analista Comercial JR", "Remoto", "Remoto")
+    assert vaga.rejeitada_so_pelo_cargo(PERFIL_BR.regras)

@@ -265,6 +265,11 @@ def ciclo_de_busca(perfil: Perfil):
     total_filtradas = 0
     scrapers_com_problema = []
     descartes_escopo_ciclo: Counter = Counter()
+    # Diagnóstico (ver Job.rejeitada_so_pelo_cargo): vaga numa das cidades
+    # aceitas que só não passou porque o título não bate keyword nenhuma.
+    # Existe pra medir se vale abrir a descrição dessas vagas — hoje o filtro
+    # lê só o título, e vaga de BI com nome comercial escapa.
+    titulo_barrou_em_cidade: list[str] = []
 
     termos_do_ciclo = _proximo_bloco_termos(perfil)
     logger.info(
@@ -308,6 +313,13 @@ def ciclo_de_busca(perfil: Perfil):
             total_brutas += len(vagas)
             vagas_filtradas, descartes = filtrar_vagas(vagas, perfil.regras)
             descartes_escopo_ciclo.update(descartes)
+
+            ids_aprovadas = {v.id for v in vagas_filtradas}
+            titulo_barrou_em_cidade.extend(
+                f"{v.titulo} — {v.empresa} ({v.local})"
+                for v in vagas
+                if v.id not in ids_aprovadas and v.rejeitada_so_pelo_cargo(perfil.regras)
+            )
 
             # Eixo secundário (Ibéria, quando ligado): mesma regra de cargo,
             # cidade diferente — sem duplicar o que já bateu na regra
@@ -423,6 +435,20 @@ def ciclo_de_busca(perfil: Perfil):
             f"{escopo} ({n})" for escopo, n in descartes_escopo_ciclo.most_common()
         )
         logger.info(f"[{perfil.nome}] Descarte por escopo: {detalhe}")
+
+    # MEDIDO: uma vaga real ("Analista Comercial JR", Lactalis, Recife) não
+    # foi notificada — local aceito, título sem nenhuma das 36 keywords, mas a
+    # descrição com 5 dos 11 qualificadores de dados. Este contador mede
+    # quantas vagas por ciclo caem nesse caso, pra decidir por número (e não
+    # por palpite) se vale abrir a descrição delas. Mostra até 10 exemplos —
+    # o suficiente pra julgar se são vagas de verdade ou ruído.
+    if titulo_barrou_em_cidade:
+        logger.info(
+            f"[{perfil.nome}] Em cidade aceita, barradas só pelo título: "
+            f"{len(titulo_barrou_em_cidade)}"
+        )
+        for exemplo in titulo_barrou_em_cidade[:10]:
+            logger.info(f"[{perfil.nome}]   · {exemplo}")
 
     # Alerta de saúde: se a maioria das fontes falhou/voltou vazia, avisa no
     # Telegram. Sem isso, um bloqueio geral ou mudança de layout passaria

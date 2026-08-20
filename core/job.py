@@ -913,6 +913,7 @@ class _Avaliacao:
     bate_ferramenta: bool
     bate_remoto: bool
     escopos: set[str]
+    bate_cidade: bool
     mercado_confirmado: bool  # escopo bateu explicitamente um mercado aceito
     idioma_bateu_titulo: bool
 
@@ -1250,10 +1251,35 @@ class Job:
             bate_ambiguo=bate_ambiguo,
             bate_ferramenta=bate_ferramenta,
             bate_remoto=bate_remoto,
+            bate_cidade=bate_cidade,
             escopos=escopos,
             mercado_confirmado=bate_remoto and bool(escopos),
             idioma_bateu_titulo=idioma_bateu_titulo,
         )
+
+    def rejeitada_so_pelo_cargo(self, regras: RegrasFiltro) -> bool:
+        """A vaga foi barrada SÓ pelo título, estando num local aceito?
+
+        Só pra diagnóstico (ver o contador em main.py) — não decide nada.
+
+        MEDIDO: uma vaga real da Lactalis ("Analista Comercial JR", Recife,
+        presencial) não foi notificada. O local passa; o título não bate
+        nenhuma das 36 keywords. Mas a descrição tem 5 dos 11 qualificadores
+        de dados — KPIs, dashboards, Power BI, Qlik Sense, modelagem — e é uma
+        vaga de BI com nome comercial.
+
+        O filtro lê só o TÍTULO. É o que mantém o ruído perto de zero (2.028
+        brutas viraram 439 no ciclo medido, sem lixo), e o preço simétrico é
+        justamente esse: título genérico com conteúdo de dados sempre escapa.
+
+        Ler a descrição de toda vaga custaria centenas de páginas por ciclo.
+        Ler só das que já estão numa cidade aceita seria barato — mas ninguém
+        sabe QUANTAS são por ciclo, e sem esse número a decisão vira palpite.
+        Este contador existe pra virar número antes de virar código.
+        """
+        av = self._avaliar(regras)
+        bate_keyword = av.bate_forte or av.bate_ambiguo or av.bate_ferramenta
+        return not bate_keyword and av.bate_cidade
 
     def pontuar_relevancia(self, regras: RegrasFiltro) -> int:
         """Score (1 a 10 na prática, ver MEDIDO abaixo) pra ORDENAR vagas

@@ -43,6 +43,9 @@ class SolidesScraper(BaseScraper):
     def _buscar_termo(self, termo: str) -> list[Job]:
         logger.info(f"[Solides] Buscando: {termo}")
         vagas: list[Job] = []
+        # Mesmo mecanismo do gupy.py: o tamanho de página é descoberto pela
+        # primeira página, e página menos cheia que ela é a última.
+        cards_por_pagina = None
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
@@ -76,10 +79,22 @@ class SolidesScraper(BaseScraper):
                             logger.info(f"[Solides] 0 resultados reais para '{termo}'.")
                             sem_resultados = True
                         elif pagina > 1:
+                            # MEDIDO: este aviso dizia "não dá pra diferenciar
+                            # aqui" e disparava a cada fim de paginação, virando
+                            # ruído. Agora dá pra diferenciar: a checagem de
+                            # página incompleta (abaixo) encerra o fim natural
+                            # antes de pedir a próxima. Se mesmo assim der
+                            # timeout, a página anterior estava CHEIA — havia
+                            # mais resultado de verdade.
+                            #
+                            # Aqui o texto do site não ajuda: MEDIDO ao vivo que
+                            # página além da última continua mostrando o total
+                            # real ("202 vaga(s) encontrada"), não "0 vaga(s)".
+                            # Por isso a contagem de cards, e não o texto.
                             logger.warning(
-                                f"[Solides] Timeout esperando resultados na página {pagina} de "
-                                f"'{termo}' — parando de paginar (fim real dos resultados ou "
-                                "bloqueio, não dá pra diferenciar aqui)."
+                                f"[Solides] Timeout na página {pagina} de '{termo}' com a "
+                                "página anterior CHEIA — havia mais resultado e ele não "
+                                "carregou. Vaga pode ter ficado de fora."
                             )
                             break
                         else:
@@ -90,6 +105,9 @@ class SolidesScraper(BaseScraper):
                     cards = [] if sem_resultados else page.query_selector_all("li:has(h2 a)")
                     if not cards:
                         break
+
+                    if cards_por_pagina is None:
+                        cards_por_pagina = len(cards)
 
                     for card in cards:
                         try:
@@ -131,6 +149,13 @@ class SolidesScraper(BaseScraper):
                             continue
 
                     if sem_resultados:
+                        break
+
+                    if len(cards) < cards_por_pagina:
+                        logger.info(
+                            f"[Solides] Fim dos resultados de '{termo}' na página {pagina} "
+                            f"({len(cards)} de {cards_por_pagina} por página)."
+                        )
                         break
 
             except Exception as e:

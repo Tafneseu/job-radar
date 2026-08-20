@@ -261,7 +261,23 @@ ATIVAR_EIXO_IBERICO_BR = False
 #
 # Mercado "casa": busca modalidade completa (presencial/híbrida + remoto),
 # porque o usuário mora aqui e vaga local de verdade interessa.
-LOCATIONS_LINKEDIN = ["Brasil"]
+# MEDIDO (2026-08-20): o endpoint de visitante do LinkedIn NÃO resolve
+# "Brasil" — e não devolve erro. Ele devolve um resultado genérico dos EUA
+# (Evansville-IN, Sandy-UT, Port Angeles-WA...), o MESMO que devolve pra
+# qualquer location que ele não entende. Testado ao vivo, mesmo termo:
+#     location="Brasil"  ->  10 vagas,  0 no Brasil
+#     location="Brazil"  ->  10 vagas,  8 no Brasil
+#
+# Efeito no histórico: das 910 vagas que o LinkedIn já tinha trazido pro
+# perfil BR, 281 eram dos EUA (o filtro descartava depois, mas elas ocupavam
+# o orçamento de 20 resultados por termo) e só 19 eram do Brasil — e essas
+# 19 vieram das buscas POR CIDADE, que resolvem normalmente. A passada
+# nacional nunca trouxe uma vaga brasileira sequer.
+#
+# Foi assim que "Analista de Business Intelligence Pleno (Remoto)" da Vitru
+# (Brasil/Remoto, relevância 7, APROVADA pelo filtro) nunca chegou a ser
+# vista: ela é exatamente o caso que a passada nacional deveria cobrir.
+LOCATIONS_LINKEDIN = ["Brazil"]
 
 # Mercados adicionais: só busca REMOTA (f_WT=2) — vaga presencial/híbrida
 # num país onde o usuário não mora não serve, então nem faz sentido gastar
@@ -273,9 +289,21 @@ LOCATIONS_LINKEDIN = ["Brasil"]
 # (LOCATIONS_INTL) — evita arriscar nome de país nunca testado (grafia
 # errada ou região que o LinkedIn não resolve como location de verdade,
 # como já visto com "LATAM"/"Latin America").
-LOCATIONS_LINKEDIN_REMOTO_APENAS = ["Argentina", "Chile", "México", "Colômbia", "Espanha", "Portugal"]
+#
+# CORRIGIDO (2026-08-20): esta lista dizia reaproveitar LOCATIONS_INTL, mas
+# "México" e "Colômbia" tinham sido traduzidos pro português — e o LinkedIn
+# não resolve nenhum dos dois. Medido ao vivo, mesmo termo:
+#     "México"   -> 10 vagas,  0 no México  |  "Mexico"   -> 10, 10 no México
+#     "Colômbia" ->  0 vagas               |  "Colombia" -> 10, 10 na Colômbia
+# E no banco: o perfil internacional (LOCATIONS_INTL, em inglês) tinha 110
+# vagas do México e 48 da Colômbia; o perfil BR, zero de cada.
+#
+# "Espanha" FICA como está: foi medido e resolve (9 de 10 na Espanha, 215
+# vagas no histórico). Argentina/Chile/Portugal se escrevem igual nos dois
+# idiomas. Ou seja: só muda o que está comprovadamente quebrado.
+LOCATIONS_LINKEDIN_REMOTO_APENAS = ["Argentina", "Chile", "Mexico", "Colombia", "Espanha", "Portugal"]
 
-# MEDIDO: a passada nacional acima (location="Brasil") varre o país inteiro
+# MEDIDO: a passada nacional acima (location="Brazil") varre o país inteiro
 # e só sobra o que bate em CIDADES depois do filtro — pra termo concorrido
 # em SP/RJ/MG (a maioria), as 3 páginas (30 resultados) nunca chegam numa
 # vaga de cidade menor do Nordeste, porque o volume dos polos maiores

@@ -76,7 +76,7 @@ class LinkedInScraper(BaseScraper):
 
     `locations_cidades_presencial`: uma cidade por busca (só passada
     nacional, sem f_WT=2) pras cidades de CIDADES em config.py — existe
-    porque a passada nacional acima (location="Brasil") não alcança essas
+    porque a passada nacional acima (location="Brazil") não alcança essas
     cidades quando o termo é concorrido em SP/RJ/MG (MEDIDO ao vivo: 3
     páginas de "analista de dados" em Brasil inteiro vieram só de capital
     grande). Busca por cidade específica não depende de volume nacional —

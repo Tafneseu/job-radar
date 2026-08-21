@@ -216,6 +216,15 @@ CIDADES = [
     # Mantidas por decisao da usuaria, alem do requisito minimo
     "Maceió",
     "Aracaju",
+    # Fortaleza-CE: pedida em 21/08/2026, presencial e híbrida como as
+    # demais. Cuidado que ela exige: existem "Fortaleza de Minas" (MG),
+    # "Fortaleza dos Nogueiras" (MA) e "Fortaleza dos Valos" (RS) — as três
+    # batem o nome. Quem as barra é _UF_DA_CIDADE["fortaleza"] = "ce" em
+    # job.py, e ela só funciona pro formato do LinkedIn ("Fortaleza de
+    # Minas, Minas Gerais, Brazil") desde 5e91895, que ensinou a guarda a
+    # ler estado por extenso. Sem aquele commit, esta cidade entraria com
+    # três falsos positivos junto.
+    "Fortaleza",
 ]
 
 # MEDIDO: "Data Analyst @ Lisboa" e "Analista de Datos @ Madrid" reprovavam

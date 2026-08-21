@@ -498,6 +498,10 @@ _UF_DA_CIDADE = {
     "manaus": "am",
     "maceio": "al",
     "aracaju": "se",
+    # Fortaleza tem três homônimas em outros estados — "Fortaleza de Minas"
+    # (MG), "Fortaleza dos Nogueiras" (MA) e "Fortaleza dos Valos" (RS).
+    # Medido: sem esta linha, as três passavam.
+    "fortaleza": "ce",
 }
 
 

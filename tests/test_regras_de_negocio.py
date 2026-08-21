@@ -50,6 +50,7 @@ CIDADES_ACEITAS = [
     ("Manaus", "AM"),
     ("Maceió", "AL"),
     ("Aracaju", "SE"),
+    ("Fortaleza", "CE"),
 ]
 
 
@@ -79,7 +80,7 @@ def test_br_variacoes_de_escrita_da_cidade(local):
 @pytest.mark.parametrize("local", [
     "São Paulo - SP", "Belo Horizonte, MG", "Salvador - BA",
     "Rio de Janeiro, RJ", "Curitiba - PR", "Brasília, DF",
-    "Fortaleza - CE", "Porto Alegre - RS",
+    "Porto Alegre - RS",
     # Estavam em CIDADES por engano e aceitavam hibrida/presencial
     # fora da regra -- ver MEDIDO em config.py.
     "Jaboatão dos Guararapes - PE", "Teresina - PI",

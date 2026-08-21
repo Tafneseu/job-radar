@@ -99,7 +99,7 @@ def _linha_aviso_antiga(job) -> str:
     preenchida há tempos."""
     if not job.publicacao_antiga:
         return ""
-    return f"⚠️ <b>Postada {job.publicado_em}</b> — pode já estar preenchida.\n"
+    return f"⚠️ <b>Postada {job.publicado_em_legivel}</b> — pode já estar preenchida.\n"
 
 
 def notificar_vaga(job) -> bool:
@@ -108,7 +108,7 @@ def notificar_vaga(job) -> bool:
     #
     # Linha de publicação só aparece quando a fonte expõe isso (nem toda
     # expõe — ver Job.publicado_em / extrair_data_publicacao em job.py).
-    linha_publicacao = f"<b>Publicada:</b> {job.publicado_em}\n" if job.publicado_em else ""
+    linha_publicacao = f"<b>Publicada:</b> {job.publicado_em_legivel}\n" if job.publicado_em else ""
     linha_modalidade = f"<b>Modalidade:</b> {job.modalidade}\n" if job.modalidade else ""
     texto = (
         f"🚨 <b>Nova vaga encontrada!</b>\n\n"

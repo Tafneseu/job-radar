@@ -4,7 +4,7 @@ from urllib.parse import quote_plus
 
 from playwright.sync_api import sync_playwright
 
-from core.job import Job, _e_remoto, _normalizar, extrair_data_publicacao
+from core.job import Job, _e_remoto, _normalizar, extrair_data_do_card
 from core.logger import get_logger
 from scrapers.base import BaseScraper
 
@@ -125,7 +125,16 @@ class LinkedInIntlScraper(BaseScraper):
                                 continue
                             link = link.split("?")[0]
 
-                            publicado_em = extrair_data_publicacao(card.inner_text())
+                            # A tag <time> do card traz a data ABSOLUTA
+                            # (datetime="2026-03-26"). O texto traz "4
+                            # months ago", em ingles, que os padroes em
+                            # portugues nunca casavam — ver
+                            # extrair_data_do_card em core/job.py.
+                            el_data = card.query_selector("time")
+                            publicado_em = extrair_data_do_card(
+                                el_data.get_attribute("datetime") if el_data else None,
+                                card.inner_text(),
+                            )
 
                             vagas.append(Job(
                                 titulo=titulo,

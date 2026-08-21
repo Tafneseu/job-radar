@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import date, datetime, timezone
 from urllib.parse import urlsplit, urlunsplit
 import hashlib
 import re
@@ -805,6 +806,40 @@ _PADRAO_DATA_RELATIVA = re.compile(
 _PADRAO_HOJE_ONTEM = re.compile(r"\b(hoje|ontem)\b", re.IGNORECASE)
 
 
+_PADRAO_DATA_ISO = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+# Idade a partir da qual uma vaga com data ABSOLUTA conta como antiga.
+# 30 dias porque e exatamente o que o formato relativo ja considerava: o
+# teste antigo era '"mes" in texto', e "ha 1 mes" ja batia. Mantem o mesmo
+# criterio pras duas formas de data, em vez de criar um segundo conceito.
+DIAS_PARA_PUBLICACAO_ANTIGA = 30
+
+
+def extrair_data_do_card(atributo_datetime: str | None, texto_card: str) -> str:
+    """Data de publicacao do card, preferindo a ABSOLUTA quando existir.
+
+    MEDIDO (2026-08-21): o card do LinkedIn tem <time datetime="2026-03-26">
+    e o texto "4 months ago" — em INGLES. extrair_data_publicacao so conhece
+    padrao em portugues ("ha 4 meses", "publicada em 11/08"), entao nunca
+    casava: 1.061 de 1.061 vagas do LinkedIn ficaram sem data nenhuma.
+
+    Sem data, Job.publicacao_antiga sempre volta False e vaga velha e
+    notificada como se fosse fresca. Na pagina 1 de "analista de dados"
+    (Brasil, remoto), 4 dos 6 primeiros cards tinham mais de um mes.
+
+    A tag e melhor que o texto por dois motivos, os dois medidos: e absoluta
+    (nao depende de calcular "4 months ago" contra a data de hoje) e nao
+    depende de idioma. E havia card cujo TEXTO nao trazia a idade nenhuma,
+    so a tag — pra esse, texto nenhum resolveria.
+
+    Cai pro texto quando nao ha tag: fonte sem <time> continua funcionando
+    exatamente como antes.
+    """
+    if atributo_datetime and _PADRAO_DATA_ISO.match(atributo_datetime.strip()):
+        return atributo_datetime.strip()
+    return extrair_data_publicacao(texto_card)
+
+
 def extrair_data_publicacao(texto_card: str) -> str:
     """Procura sinal de data de publicação no texto renderizado de um card
     de vaga. Cobre formato absoluto ("Publicada em 11/08", "Publicada em 11
@@ -1083,8 +1118,36 @@ class Job:
         também sempre False — só sinal INEQUÍVOCO de "há muito tempo"
         conta, não estimativa por ausência de dado.
         """
-        texto = _normalizar(self.publicado_em)
+        bruto = (self.publicado_em or "").strip()
+        if _PADRAO_DATA_ISO.match(bruto):
+            # Data absoluta (LinkedIn, via <time datetime=...>): da pra
+            # calcular a idade de verdade, sem depender do texto do card.
+            try:
+                publicada = date.fromisoformat(bruto)
+            except ValueError:
+                return False
+            hoje = datetime.now(timezone.utc).date()
+            return (hoje - publicada).days >= DIAS_PARA_PUBLICACAO_ANTIGA
+
+        texto = _normalizar(bruto)
         return "mes" in texto or "ano" in texto
+
+    @property
+    def publicado_em_legivel(self) -> str:
+        """publicado_em formatado pra leitura humana na notificacao.
+
+        "2026-03-26" no Telegram vira "Postada 2026-03-26", que se le mal em
+        portugues. Converte so a data ISO; qualquer outro formato (relativo,
+        absoluto do site, vazio) passa intacto — o texto original ja era o
+        que ia pra tela antes desta propriedade existir.
+        """
+        bruto = (self.publicado_em or "").strip()
+        if not _PADRAO_DATA_ISO.match(bruto):
+            return bruto
+        try:
+            return date.fromisoformat(bruto).strftime("%d/%m/%Y")
+        except ValueError:
+            return bruto
 
     @property
     def escopo_remoto(self) -> set[str]:

@@ -18,6 +18,45 @@ _MODALIDADES = {"remoto", "híbrido", "hibrido", "presencial"}
 # cidades monitoradas, ao custo de mais requests por termo.
 MAX_PAGINAS = 3
 
+# Frase que a Gupy renderiza quando a página carregou mas não tem vaga.
+TEXTO_SEM_RESULTADO = "Nenhum resultado foi encontrado"
+
+
+def classificar_timeout(corpo: str, pagina: int) -> str:
+    """O que significa estourar o tempo esperando os cards de uma página.
+
+    Devolve "vazio" (busca sem resultado nenhum), "fim" (a paginação acabou,
+    a página pedida não existe) ou "falha" (a página não carregou de verdade).
+
+    MEDIDO (2026-08-21): antes desta separação, QUALQUER timeout da página 2
+    em diante virava aviso de vaga perdida — e na maioria dos termos do ciclo
+    isso era falso. A página de busca da Gupy cabe 12 cards; "data analyst"
+    tem 8 resultados no total, então a página 1 já era a última. Só que
+    cards_por_pagina é aprendido OLHANDO A PÁGINA 1: ele aprendeu "cheia = 8",
+    achou que estava cheia e pediu a página 2, que não existe.
+
+    Medido ao vivo, mesmo dia, mesmo endpoint:
+        'analista de dados'  pág.1 -> 12 cards   pág.2 -> 12 cards
+        'data analyst'       pág.1 ->  8 cards   pág.2 ->  0 cards
+
+    A página inexistente CARREGA normalmente e diz, em texto, "Nenhum
+    resultado foi encontrado" (junto com "8 resultados", o total real). Essa
+    frase já era procurada pelo scraper, mas só no ramo da página 1 — da 2 em
+    diante ele nem olhava o corpo: assumia falha e avisava perda que nunca
+    houve. Alarme falso constante esconde o aviso verdadeiro, que é o motivo
+    de o aviso existir.
+
+    O aviso de verdade continua: página que falhou mesmo não traz a frase.
+
+    MELHORIA POSSÍVEL, não implementada: a página traz "N resultados" já na
+    primeira, o que permitiria nem pedir a seguinte num termo curto. Fica pra
+    depois — corrigir o alarme não depende disso, e mudança a mais é risco a
+    mais.
+    """
+    if TEXTO_SEM_RESULTADO in corpo:
+        return "vazio" if pagina == 1 else "fim"
+    return "falha"
+
 
 class GupyScraper(BaseScraper):
     """Busca vagas no portal público da Gupy (https://portal.gupy.io)."""
@@ -55,24 +94,28 @@ class GupyScraper(BaseScraper):
                     try:
                         page.wait_for_selector("a:has(h3)", timeout=15000)
                     except PlaywrightTimeoutError:
-                        if pagina > 1:
-                            # Timeout de verdade (site lento, bloqueio) —
-                            # DIFERENTE de "acabaram as vagas", que é
-                            # sinalizado abaixo (página carrega normal mas
-                            # devolve 0 cards). Sem essa distinção, um
-                            # timeout na página 2/3 virava break silencioso
-                            # idêntico ao fim natural da paginação, e a vaga
-                            # que estaria nessa página se perdia sem deixar
-                            # rastro nenhum no log.
+                        try:
+                            corpo = page.inner_text("body")
+                        except Exception:
+                            corpo = ""
+
+                        situacao = classificar_timeout(corpo, pagina)
+                        if situacao == "vazio":
+                            logger.info(f"[Gupy] 0 resultados reais para '{termo}'.")
+                            sem_resultados = True
+                        elif situacao == "fim":
+                            logger.info(
+                                f"[Gupy] Fim dos resultados de '{termo}': a página "
+                                f"{pagina} não existe (a anterior já era a última)."
+                            )
+                            break
+                        elif pagina > 1:
                             logger.warning(
                                 f"[Gupy] Timeout na página {pagina} de '{termo}' com a "
                                 "página anterior CHEIA — havia mais resultado e ele não "
                                 "carregou. Vaga pode ter ficado de fora."
                             )
                             break
-                        if "Nenhum resultado foi encontrado" in page.inner_text("body"):
-                            logger.info(f"[Gupy] 0 resultados reais para '{termo}'.")
-                            sem_resultados = True
                         else:
                             raise
                     time.sleep(2 if not sem_resultados else 0)  # dá tempo do React terminar de renderizar

@@ -501,6 +501,31 @@ _UF_DA_CIDADE = {
 }
 
 
+# MEDIDO (2026-08-21): a guarda de UF só entendia SIGLA de duas letras, mas o
+# LinkedIn escreve o estado POR EXTENSO. Consequência: a mesma vaga era
+# barrada ou passava dependendo só de como a fonte escreve o local —
+#     "Campina Grande do Sul - PR"                -> barrada (correto)
+#     "Campina Grande do Sul, Paraná, Brazil"     -> PASSAVA (errado)
+# e o segundo formato é justamente o do LinkedIn, hoje origem de quase toda
+# vaga brasileira do projeto. A guarda estava furada onde mais importa.
+#
+# Conferido contra os 38 formatos de local brasileiro que existem de verdade
+# no jobs.db: 36 resolvem. Os dois que não: "Brazil" puro (não declara estado
+# nenhum, e aí não há o que conferir) e "Brasília, Federal District" — o
+# LinkedIn escreve o DF em INGLÊS, então essa grafia entra na tabela também.
+_NOME_DO_ESTADO = {
+    "acre": "ac", "alagoas": "al", "amapa": "ap", "amazonas": "am",
+    "bahia": "ba", "ceara": "ce", "distrito federal": "df",
+    "federal district": "df", "espirito santo": "es", "goias": "go",
+    "maranhao": "ma", "mato grosso": "mt", "mato grosso do sul": "ms",
+    "minas gerais": "mg", "para": "pa", "paraiba": "pb", "parana": "pr",
+    "pernambuco": "pe", "piaui": "pi", "rio de janeiro": "rj",
+    "rio grande do norte": "rn", "rio grande do sul": "rs",
+    "rondonia": "ro", "roraima": "rr", "santa catarina": "sc",
+    "sao paulo": "sp", "sergipe": "se", "tocantins": "to",
+}
+
+
 def _uf_declarada(local_norm: str) -> str | None:
     """Sigla de UF brasileira presente no texto de local, se houver.
 
@@ -511,6 +536,8 @@ def _uf_declarada(local_norm: str) -> str | None:
         pedaco = pedaco.strip(" .")
         if pedaco in _SIGLAS_UF_BRASIL:
             return pedaco
+        if pedaco in _NOME_DO_ESTADO:
+            return _NOME_DO_ESTADO[pedaco]
     return None
 
 

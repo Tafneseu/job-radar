@@ -1,4 +1,5 @@
 
+import re
 import time
 from urllib.parse import quote_plus
 
@@ -11,6 +12,45 @@ from scrapers.base import BaseScraper
 logger = get_logger()
 
 _MODALIDADES = {"remota", "híbrida", "hibrida", "presencial"}
+
+# A 99Jobs escreve, no topo do resultado:
+#     "Foram encontrados 3 oportunidades para o termo: “analista de dados”"
+#     "Foram encontrados 0 oportunidades para o termo: “business intelligence”"
+# O total esta ali, em texto renderizado. E ele que diz se a busca foi vazia.
+_PADRAO_TOTAL = re.compile(r"foram encontrad\w*\s+(\d+)\s+oportunidade", re.IGNORECASE)
+
+
+def classificar_timeout(corpo: str) -> str:
+    """O que significa estourar o tempo esperando os cards.
+
+    Devolve "vazio" (a busca nao tem resultado nenhum) ou "falha" (a pagina
+    nao carregou, ou carregou dizendo que HA vaga e mesmo assim nao renderizou
+    card nenhum).
+
+    MEDIDO (2026-08-22): a checagem antiga era
+
+        if "oportunidades para o termo" in texto_pagina:
+            logger.info("0 resultados reais")
+
+    e essa frase aparece SEMPRE -- medida ao vivo com 6 cards, com 4 e com 0.
+    Ela nao discriminava nada: qualquer timeout virava "0 resultados reais",
+    entao no dia em que a 99Jobs saisse do ar o log diria "busca vazia" e a
+    fonte morreria em silencio, sem uma linha de aviso.
+
+    Como o bug nasceu, pelo comentario que estava aqui: a versao original
+    procurava o "0" junto de "oportunidades", mas os dois ficam em elementos
+    HTML separados e nunca batiam como texto contiguo em page.content(). A
+    correcao trocou content() por inner_text() -- e nessa troca o "0" caiu da
+    comparacao. O conserto de um problema real levou junto a unica parte que
+    discriminava.
+
+    Agora le o NUMERO. Sem o numero na pagina, e falha: a pagina que carrega
+    de verdade sempre traz essa frase.
+    """
+    achado = _PADRAO_TOTAL.search(corpo)
+    if achado is None:
+        return "falha"
+    return "vazio" if achado.group(1) == "0" else "falha"
 
 
 class Jobs99Scraper(BaseScraper):
@@ -54,12 +94,15 @@ class Jobs99Scraper(BaseScraper):
                 try:
                     page.wait_for_selector("a.opportunity-card", state="attached", timeout=25000)
                 except Exception:
-                    # page.content() é o HTML bruto — o "0" e "oportunidades" ficam
-                    # em elementos separados ali, então nunca batiam como texto
-                    # contíguo. inner_text() reflete o texto renderizado (como
-                    # aparece na tela), que é onde essa frase realmente é contígua.
-                    texto_pagina = page.inner_text("body")
-                    if "oportunidades para o termo" in texto_pagina:
+                    # inner_text() e nao content(): o total fica montado a
+                    # partir de elementos separados, e so o texto RENDERIZADO
+                    # traz a frase inteira e contigua. Ver classificar_timeout.
+                    try:
+                        corpo = page.inner_text("body")
+                    except Exception:
+                        corpo = ""
+
+                    if classificar_timeout(corpo) == "vazio":
                         logger.info(f"[99Jobs] 0 resultados reais para '{termo}'.")
                         sem_resultados = True
                     else:

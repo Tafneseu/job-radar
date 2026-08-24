@@ -271,6 +271,26 @@ _CIDADES_MERCADO = {
     "islas baleares": "Espanha",
     "mendoza": "Argentina",
     "rosario": "Argentina",
+    # MEDIDO no log de 21/08: "rancagua (2)" aparecendo como descarte por
+    # escopo — vaga do Chile, mercado ACEITO, jogada fora so por a cidade
+    # nao estar aqui. "granada" e "pachuca de soto" ja tinham aparecido do
+    # mesmo jeito em ciclos anteriores.
+    #
+    # As demais desta leva NAO vieram de descarte registrado: sao capitais
+    # e cidades grandes dos mesmos paises aceitos, adicionadas pela politica
+    # que este dicionario ja declara acima — custo de manter a lista maior e
+    # zero (so comparacao de string), custo de faltar um nome e falso
+    # negativo silencioso, que e o erro caro aqui.
+    "rancagua": "Chile",
+    "vina del mar": "Chile",
+    "antofagasta": "Chile",
+    "concepcion": "Chile",
+    "salta": "Argentina",
+    "mar del plata": "Argentina",
+    "granada": "Espanha",
+    "pachuca de soto": "México",
+    "puebla": "México",
+    "queretaro": "México",
     "bucaramanga": "Colômbia",
     "cali": "Colômbia",
     "barranquilla": "Colômbia",
@@ -445,6 +465,11 @@ _SIGLAS_ESTADOS_EUA = {
     "or", "pa", "ri", "sc", "sd", "tn", "tx", "ut", "vt", "va", "wa", "wv",
     "wi", "wy", "dc",
 }
+
+# Sigla dos EUA que tambem e outra coisa em pais aceito. "dc" = District of
+# Columbia, mas tambem "Distrito Capital" (Bogota, D.C.). So estas exigem que
+# a cidade confirme — ver o laco de segmentos em extrair_escopo_remoto.
+_SIGLAS_EUA_AMBIGUAS = {"dc"}
 
 # MEDIDO: "Remoto (Maceió, AL)", "Remoto (Belém, PA)", "Remoto (Florianópolis,
 # SC)", "Remoto (Cuiabá, MT)", "Remoto (São Luís, MA)", "Remoto (Campo
@@ -717,6 +742,20 @@ def extrair_escopo_remoto(texto_local: str, modalidade: str = "") -> set[str]:
             if seg not in _SIGLAS_UF_AMBIGUAS or cidade in _CAPITAIS_BRASIL:
                 return {"Brasil"}
         if seg in _SIGLAS_ESTADOS_EUA:
+            # MEDIDO (21/08): "Remoto (Bogotá, D.C.)" resolvia pra Estados
+            # Unidos e a vaga era descartada — mas "D.C." ali e Distrito
+            # Capital, que e como a Colombia escreve Bogota. O laco retornava
+            # na sigla ANTES de olhar a cidade, entao "bogota" nunca era
+            # consultada ("Remoto (Bogota)", sem o D.C., resolvia certo pra
+            # Colombia).
+            #
+            # Mesma solucao que as 6 UFs brasileiras ambiguas ja usam logo
+            # acima: sigla que colide so decide depois que a cidade confirma.
+            # Restrito a "dc" DE PROPOSITO — regra generica de "cidade
+            # conhecida vence a sigla" quebraria "San Jose, CA", que e
+            # California de verdade e nao San Jose da Costa Rica.
+            if seg in _SIGLAS_EUA_AMBIGUAS and cidade in _CIDADES_MERCADO:
+                return {_CIDADES_MERCADO[cidade]}
             return {"Estados Unidos"}
         # MEDIDO: "San Luis Potosi, S. L. P." chega como segmento "s l p"
         # (o ponto ja foi removido, o espaco nao) e nunca batia contra a

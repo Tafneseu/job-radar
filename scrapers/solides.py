@@ -1,4 +1,5 @@
 
+import re
 import time
 
 from playwright.sync_api import sync_playwright
@@ -24,6 +25,53 @@ MAX_PAGINAS = 3
 
 def _slug(termo: str) -> str:
     return termo.strip().lower().replace(" ", "-")
+
+
+# Texto que a Sólides renderiza quando a página carregou mas não tem vaga
+# ("Ops! / Vaga não encontrada").
+TEXTO_SEM_RESULTADO = "Vaga não encontrada"
+
+# MEDIDO (2026-08-21): a checagem antiga era `"0 vaga(s) encontrada" in corpo`,
+# substring crua — e "200 vaga(s) encontrada" CONTÉM "0 vaga(s) encontrada".
+# Qualquer total terminado em zero (10, 30, 200...) casava como busca vazia.
+# Efeito: página 1 que falhasse de verdade num desses termos era registrada
+# como "0 resultados reais" e o scraper parava em silêncio — falha real
+# escondida atrás de mensagem de busca vazia. A borda de palavra resolve.
+_PADRAO_ZERO_VAGAS = re.compile(r"\b0 vaga\(s\) encontrada")
+
+
+def classificar_timeout(corpo: str, pagina: int) -> str:
+    """O que significa estourar o tempo esperando os cards de uma página.
+
+    Devolve "vazio" (busca sem resultado nenhum), "fim" (a paginação acabou,
+    a página pedida não existe) ou "falha" (a página não carregou de verdade).
+
+    MEDIDO (2026-08-21) ao vivo, com o MESMO user_agent e init_script do
+    scraper (sem eles a Sólides não renderiza nada e a medição não vale):
+
+        'analista de dados' pág.1 -> 10 cards | total "200 vaga(s) encontrada"
+        'data analyst'      pág.1 ->  7 cards | total   "7 vaga(s) encontrada"
+        'data analyst'      pág.2 ->  0 cards | "Ops! / Vaga não encontrada"
+
+    Ou seja: mesma causa da Gupy. A página cabe 10; "data analyst" tem 7 no
+    total, então a página 1 já era a última. Mas cards_por_pagina é aprendido
+    OLHANDO A PÁGINA 1 — aprendeu "cheia = 7", achou que estava cheia e pediu
+    a página 2, que não existe. O timeout virava aviso de vaga perdida.
+
+    O comentário anterior deste arquivo afirmava, com medição, que aqui o
+    texto do site não ajudava. Estava certo sobre o que mediu: a página além
+    da última NÃO mostra "0 vaga(s) encontrada" (mostra o total real, 7). Mas
+    mostra "Ops! / Vaga não encontrada", que aquela medição não procurou.
+
+    MELHORIA POSSÍVEL, não implementada: o total declarado ("7 vaga(s)
+    encontrada") está na página 1, junto do tamanho de página. Comparar os
+    dois evitaria PEDIR a página inexistente — hoje ela custa os 25s do
+    timeout, por termo curto, todo ciclo. Fica pra depois: corrigir o alarme
+    não depende disso, e mudança a mais é risco a mais.
+    """
+    if TEXTO_SEM_RESULTADO in corpo or _PADRAO_ZERO_VAGAS.search(corpo):
+        return "vazio" if pagina == 1 else "fim"
+    return "falha"
 
 
 class SolidesScraper(BaseScraper):
@@ -67,30 +115,27 @@ class SolidesScraper(BaseScraper):
                     try:
                         page.wait_for_selector("li:has(h2 a)", state="attached", timeout=25000)
                     except Exception:
-                        # MEDIDO ao vivo: página além da última NÃO mostra "0
-                        # vaga(s) encontrada" (o texto continua com o total
-                        # real, ex: "202 vaga(s) encontrada") — só timeout de
-                        # verdade (site lento/bloqueio) e "passou da última
-                        # página" se parecem no comportamento (nenhum card
-                        # aparece), mas só a busca genuinamente vazia na
-                        # PÁGINA 1 tem o texto "0 vaga(s) encontrada" pra
-                        # diferenciar — mesma lógica de gupy.py.
-                        if pagina == 1 and "0 vaga(s) encontrada" in page.inner_text("body"):
+                        try:
+                            corpo = page.inner_text("body")
+                        except Exception:
+                            corpo = ""
+
+                        situacao = classificar_timeout(corpo, pagina)
+                        if situacao == "vazio":
                             logger.info(f"[Solides] 0 resultados reais para '{termo}'.")
                             sem_resultados = True
+                        elif situacao == "fim":
+                            logger.info(
+                                f"[Solides] Fim dos resultados de '{termo}': a página "
+                                f"{pagina} não existe (a anterior já era a última)."
+                            )
+                            break
                         elif pagina > 1:
-                            # MEDIDO: este aviso dizia "não dá pra diferenciar
-                            # aqui" e disparava a cada fim de paginação, virando
-                            # ruído. Agora dá pra diferenciar: a checagem de
-                            # página incompleta (abaixo) encerra o fim natural
-                            # antes de pedir a próxima. Se mesmo assim der
-                            # timeout, a página anterior estava CHEIA — havia
-                            # mais resultado de verdade.
-                            #
-                            # Aqui o texto do site não ajuda: MEDIDO ao vivo que
-                            # página além da última continua mostrando o total
-                            # real ("202 vaga(s) encontrada"), não "0 vaga(s)".
-                            # Por isso a contagem de cards, e não o texto.
+                            # Timeout de verdade: a página não carregou E não
+                            # disse estar vazia. Sem esta distinção, um
+                            # timeout real viraria break silencioso idêntico
+                            # ao fim natural da paginação, e a vaga dessa
+                            # página se perderia sem rastro no log.
                             logger.warning(
                                 f"[Solides] Timeout na página {pagina} de '{termo}' com a "
                                 "página anterior CHEIA — havia mais resultado e ele não "

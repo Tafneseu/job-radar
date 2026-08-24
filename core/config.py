@@ -56,6 +56,29 @@ KEYWORDS_CARGO_AMBIGUO = [
     "Analista de Negócios",
     "Business Analytics",
     "Analista de Performance",
+    # MEDIDO (2026-08-22) contra 293 vagas reais do LinkedIn (4 termos, 4
+    # mercados): "Analyst" sozinho trouxe 2 vagas a mais, as DUAS certas —
+    # "Data & Analytics Analyst" (Oliver Wyman, Lisboa) e "Analytics Analyst
+    # - Remote Work" (Jalisco). Zero ruído na amostra.
+    #
+    # A Oliver Wyman e a Air Liquide ("Business & Data Integration Analyst -
+    # HR Analytics") apareceram no log do dia anterior como barradas só pelo
+    # título: sao vagas de dados que nenhuma keyword cobria, porque a lista
+    # tem os cargos COMPOSTOS ("Data Analyst", "BI Analyst") e não o
+    # substantivo sozinho.
+    #
+    # O risco previsto era "Data Center Operations Analyst" — "data center"
+    # casa o qualificador "data" sem ter nada a ver com análise. Medido: não
+    # apareceu nenhuma vez nas 293. Se aparecer, é aqui que se olha.
+    #
+    # NÃO entraram, e por quê:
+    #   "Especialista" — 0 vagas a mais na mesma amostra. A vaga que motivou
+    #       a ideia ("Especialista de Inteligencia de Negocio (BI)", TeleVía)
+    #       não caiu na coleta. Sem número seria palpite.
+    #   "Analista"     — 3 a mais, mas 2 eram "Analista de Banco de Dados".
+    #       DBA é outra profissão, mesma razão que mantém "desenvolvedor" e
+    #       "engenheiro" fora. Decisão da usuária em 22/08.
+    "Analyst",
 ]
 
 # Termo que precisa aparecer junto no título quando o cargo é ambíguo, pra

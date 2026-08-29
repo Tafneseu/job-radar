@@ -14,6 +14,7 @@ import pytest
 
 from avaliar_fonte import (
     caminho_permitido,
+    descrever_erro,
     extrair_jobpostings,
     links_de_feed,
     pontuar_endpoint,
@@ -179,3 +180,37 @@ def test_json_sem_pista_no_nome_continua_candidato():
     """O nome do endpoint nem sempre denuncia o que ele faz — pontuar baixo
     ordena o relatorio, nao esconde o candidato."""
     assert pontuar_endpoint("https://x.com/api/v2/q", "application/json") > 0
+
+
+# ------------------------------ mensagem de erro ------------------------------
+
+class _ErroFalso(Exception):
+    """Reproduz o texto real que requests/playwright devolvem."""
+
+
+@pytest.mark.parametrize("mensagem, esperado", [
+    # O caso que motivou: endereco ficticio copiado da documentacao.
+    ("HTTPSConnectionPool(host='x.com.br', port=443): Max retries exceeded "
+     "(Caused by NameResolutionError(\"[Errno 11001] getaddrinfo failed\"))",
+     "site nao encontrado"),
+    ("HTTPSConnectionPool: Read timed out. (read timeout=20)", "nao respondeu a tempo"),
+    ("ProxyError('Unable to connect to proxy', OSError('Tunnel connection failed: 403'))",
+     "bloqueou o acesso"),
+    ("SSLError: certificate verify failed", "certificado"),
+])
+def test_erro_de_rede_vira_frase_acionavel(mensagem, esperado):
+    """MEDIDO: a primeira pessoa a usar o script recebeu quatro linhas de
+    jargao com stack de proxy dentro pra dizer "esse site nao existe", e foi
+    procurar defeito no script.
+
+    Quinto caso desta base do mesmo tipo: mensagem que nao distingue as
+    causas faz investigar a coisa errada.
+    """
+    assert esperado in descrever_erro(_ErroFalso(mensagem))
+
+
+def test_erro_desconhecido_mostra_o_original():
+    """Sem traducao conhecida, e melhor o texto cru do que uma frase generica
+    que esconde a causa."""
+    saida = descrever_erro(_ErroFalso("algo totalmente novo"))
+    assert "_ErroFalso" in saida and "algo totalmente novo" in saida

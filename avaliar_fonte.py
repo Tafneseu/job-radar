@@ -18,8 +18,8 @@ Procura quatro coisas, da mais estavel pra mais fragil:
   4. endpoint XHR      -- a API que o proprio site chama pra montar a
                           pagina. Foi assim que a Senior entrou.
 
-Uso:
-    python avaliar_fonte.py https://site-de-vagas.com.br/vagas/analista-de-dados
+Uso -- a URL precisa ser a de uma BUSCA real, nao um exemplo inventado:
+    python avaliar_fonte.py "https://portal.gupy.io/job-search/term=analista%20de%20dados"
 
 Nao raspa nem guarda nada: carrega a pagina uma vez e relata.
 """
@@ -180,6 +180,33 @@ def pontuar_endpoint(url: str, tipo_conteudo: str) -> int:
 
 # ------------------------------------------------------------------ relatorio
 
+def descrever_erro(erro: BaseException) -> str:
+    """Traduz falha de rede pra algo acionavel.
+
+    MEDIDO na primeira vez que este script foi usado: a usuaria copiou o
+    endereco de EXEMPLO da documentacao (que era ficticio) e recebeu de
+    volta um NameResolutionError com stack de proxy dentro -- quatro linhas
+    de jargao pra dizer "esse site nao existe". Perdeu tempo procurando
+    defeito no script.
+
+    Mesmo principio dos avisos dos scrapers, e o quinto caso desta base:
+    mensagem que nao distingue as causas faz a pessoa investigar a coisa
+    errada.
+    """
+    texto = f"{erro}".lower()
+    if "getaddrinfo" in texto or "nameresolution" in texto or "name or service not known" in texto:
+        return "site nao encontrado — confira se o endereco existe e esta escrito certo"
+    if "timed out" in texto or "timeout" in texto:
+        return "o site nao respondeu a tempo — pode estar lento ou bloqueando robo"
+    if "proxy" in texto or "tunnel connection failed" in texto:
+        return "a rede daqui bloqueou o acesso a este site"
+    if "certificate" in texto or "ssl" in texto:
+        return "problema no certificado do site"
+    if "connection refused" in texto or "connectionerror" in texto:
+        return "nao consegui conectar no site"
+    return f"{type(erro).__name__}: {erro}"
+
+
 def _linha(rotulo: str, valor: str) -> None:
     print(f"  {rotulo:<26} {valor}")
 
@@ -205,7 +232,7 @@ def avaliar(url: str) -> None:
         else:
             _linha("status:", f"{r.status_code} (sem robots.txt)")
     except Exception as erro:
-        _linha("falhou:", f"{type(erro).__name__}: {erro}")
+        _linha("falhou:", descrever_erro(erro))
 
     # 2 e 3. pagina: JSON-LD e feed
     print("\n[2] JSON-LD (schema.org/JobPosting) na pagina")
@@ -224,10 +251,19 @@ def avaliar(url: str) -> None:
                 _linha("", f"{resumo['titulo'][:44]:<44} | {resumo['empresa'][:20]:<20} | "
                            f"{resumo['cidade']}/{resumo['uf']} | {resumo['publicado_em'][:10]}")
     except Exception as erro:
-        _linha("falhou:", f"{type(erro).__name__}: {erro}")
+        _linha("falhou:", descrever_erro(erro))
+
+    if not html:
+        print("\n" + "-" * 70)
+        print("A pagina nao carregou, entao nao ha o que avaliar nela.")
+        print("Se o endereco veio da documentacao: o exemplo antigo era FICTICIO.")
+        print("Use a URL de uma busca real, por exemplo:")
+        print('  python avaliar_fonte.py '
+              '"https://portal.gupy.io/job-search/term=analista%20de%20dados"')
+        return
 
     print("\n[3] feed RSS/Atom")
-    feeds = links_de_feed(html, raiz) if html else []
+    feeds = links_de_feed(html, raiz)
     _linha("feeds declarados:", len(feeds))
     for feed in feeds[:5]:
         _linha("", feed)
@@ -256,7 +292,7 @@ def avaliar(url: str) -> None:
             aba.goto(url, timeout=60000)
             aba.wait_for_timeout(6000)
         except Exception as erro:
-            _linha("falhou:", f"{type(erro).__name__}")
+            _linha("falhou:", descrever_erro(erro))
         finally:
             navegador.close()
 

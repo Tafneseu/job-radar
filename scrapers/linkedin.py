@@ -42,6 +42,33 @@ MAX_PAGINAS_REMOTO = 2
 # manter enxuto aqui é o que evita esse custo virar desproporcional.
 MAX_PAGINAS_CIDADE = 1
 
+# Segunda chance quando a primeira pagina volta sem card nenhum.
+#
+# MEDIDO no ciclo do GitHub Actions de 29/08: 15 avisos de "Nenhum resultado
+# retornado" num unico ciclo, concentrados nas buscas POR CIDADE
+# ('looker' em Aracaju, 'qlik' em Caruaru, 'tableau' em Natal).
+#
+# A hipotese obvia era alarme falso -- cidade pequena + ferramenta de nicho
+# nao tem vaga mesmo. MEDIDO ao vivo e DERRUBADO: essas mesmas buscas
+# devolvem 10, 8, 10 cards quando rodadas isoladas. Nao e busca vazia; e
+# falha, e vaga esta sendo perdida.
+#
+# POR QUE NAO DA PRA REPRODUZIR AQUI: 45 buscas seguidas da maquina da
+# usuaria (IP residencial) deram ZERO vazias. O ciclo real roda no GitHub
+# Actions, de IP de datacenter compartilhado, que o LinkedIn trata com muito
+# mais rigor. O status 429 aparece nos dois ambientes, mas so no Actions o
+# resultado chega vazio. Ou seja: a causa e inferida, nao provada, e a
+# verificacao vem dos logs do Actions ao longo dos proximos dias.
+#
+# Por isso a correcao e SEGURA POR CONSTRUCAO em vez de precisa: uma
+# requisicao a mais so quando a busca ja falhou (~15 por ciclo, nao 240).
+# Se for rate-limit, recupera a vaga. Se nao for, a segunda tentativa volta
+# vazia igual, o aviso dispara como antes e nada piorou.
+#
+# Efeito colateral bom: o aviso passa a sair so depois de DUAS tentativas,
+# entao deixa de ser ruido e vira sinal.
+PAUSA_SEGUNDA_TENTATIVA = 5
+
 
 class LinkedInScraper(BaseScraper):
     """Busca vagas usando o endpoint público ("guest") de busca de vagas do
@@ -175,11 +202,30 @@ class LinkedInScraper(BaseScraper):
                     time.sleep(2)
 
                     cards = page.query_selector_all("li")
+                    if not cards and pagina == 0:
+                        # Ver PAUSA_SEGUNDA_TENTATIVA no topo do arquivo: no
+                        # Actions a busca volta vazia por rate-limit, nao por
+                        # falta de vaga. Uma segunda tentativa custa uma
+                        # requisição só nesse caso.
+                        logger.info(
+                            f"[LinkedIn] Sem resultado ({tag}) — tentando de novo em "
+                            f"{PAUSA_SEGUNDA_TENTATIVA}s."
+                        )
+                        time.sleep(PAUSA_SEGUNDA_TENTATIVA)
+                        page.goto(url, timeout=60000)
+                        time.sleep(2)
+                        cards = page.query_selector_all("li")
+                        if cards:
+                            logger.info(
+                                f"[LinkedIn] Segunda tentativa recuperou {len(cards)} "
+                                f"resultado(s) ({tag}) — a primeira foi bloqueio, não vaga zero."
+                            )
+
                     if not cards:
                         if pagina == 0:
                             logger.warning(
-                                f"[LinkedIn] Nenhum resultado retornado ({tag}) — provável "
-                                "bloqueio/rate-limit do LinkedIn nesse endpoint, ou 0 vaga real."
+                                f"[LinkedIn] Nenhum resultado retornado ({tag}) mesmo na "
+                                "SEGUNDA tentativa — 0 vaga real, ou bloqueio persistente."
                             )
                         break
 

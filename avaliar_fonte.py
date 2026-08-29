@@ -44,6 +44,17 @@ _PISTAS_DE_VAGA = (
     "opportunit", "search", "busca", "position", "empreg",
 )
 
+# Host de anuncio, rastreamento e infraestrutura. MEDIDO no vagas.com.br: a
+# pagina dispara 36 requisicoes JSON, e a maioria e disso. Elas nao sao
+# candidatas a fonte de vaga em hipotese nenhuma.
+_HOSTS_DE_RUIDO = (
+    "ads.", "adsystem", "adnxs", "criteo", "rubiconproject", "pubmatic",
+    "doubleclick", "googletagmanager", "google-analytics", "googlesyndication",
+    "taboola", "outbrain", "hotjar", "segment.io", "amplitude", "sentry",
+    "refinery89", "privacytools", "cookielaw", "onetrust", "unleash",
+    "facebook.", "clarity.ms", "newrelic", "datadog",
+)
+
 
 # --------------------------------------------------------------- robots.txt
 
@@ -166,16 +177,52 @@ def links_de_feed(html: str, base: str = "") -> list[str]:
 
 # ----------------------------------------------------------------- endpoint
 
-def pontuar_endpoint(url: str, tipo_conteudo: str) -> int:
+def _dominio_base(host: str) -> str:
+    """Dominio registravel, de forma simples: pega os dois ultimos rotulos, ou
+    tres quando termina em .com.br e afins. Serve so pra dizer se o endpoint e
+    da MESMA casa da pagina."""
+    partes = host.lower().split(".")
+    if len(partes) >= 3 and partes[-2] in ("com", "net", "org", "gov", "edu"):
+        return ".".join(partes[-3:])
+    return ".".join(partes[-2:])
+
+
+def pontuar_endpoint(url: str, tipo_conteudo: str, url_da_pagina: str = "") -> int:
     """Quao provavel e que esta requisicao seja a busca de vagas do site.
 
-    So ordena o relatorio -- nenhum candidato e escondido por pontuar baixo,
-    porque o nome do endpoint nem sempre denuncia o que ele faz.
+    So ordena o relatorio -- candidato nenhum e escondido por pontuar baixo,
+    porque o nome do endpoint nem sempre denuncia o que ele faz. Rastreador de
+    anuncio e a excecao: esse e descartado, porque nunca e fonte de vaga.
+
+    MEDIDO no vagas.com.br, com a versao anterior desta funcao: os tres
+    primeiros colocados do relatorio eram px.ads.linkedin.com, gum.criteo.com
+    e fastlane.rubiconproject.com. Eles pontuavam alto porque a busca das
+    pistas varria a URL INTEIRA -- e o tracker embute o endereco da pagina
+    ("...&url=https://vagas.com.br/vagas-de-analista...") dentro do proprio
+    parametro. Quanto mais o anuncio rastreava, mais ele parecia ser a busca
+    de vagas. O endpoint de verdade ficava embaixo dessa pilha.
+
+    Duas correcoes: as pistas passam a ser procuradas so em HOST e CAMINHO,
+    nunca na query string; e endpoint da mesma casa da pagina ganha peso, que
+    e o sinal mais forte de todos (a API que o proprio site chama).
     """
     if "json" not in (tipo_conteudo or "").lower():
         return 0
-    alvo = url.lower()
-    return 1 + sum(2 for pista in _PISTAS_DE_VAGA if pista in alvo)
+
+    partes = urlsplit(url)
+    host = partes.netloc.lower()
+    if any(ruido in host for ruido in _HOSTS_DE_RUIDO):
+        return 0
+
+    # Sem a query: e la que o rastreador embute o endereco da pagina.
+    alvo = f"{host}{partes.path.lower()}"
+    pontos = 1 + sum(2 for pista in _PISTAS_DE_VAGA if pista in alvo)
+
+    if url_da_pagina:
+        casa = _dominio_base(urlsplit(url_da_pagina).netloc)
+        if casa and _dominio_base(host) == casa:
+            pontos += 3
+    return pontos
 
 
 # ------------------------------------------------------------------ relatorio
@@ -283,7 +330,7 @@ def avaliar(url: str) -> None:
 
         def ao_responder(resposta):
             tipo = (resposta.headers or {}).get("content-type", "")
-            pontos = pontuar_endpoint(resposta.url, tipo)
+            pontos = pontuar_endpoint(resposta.url, tipo, url)
             if pontos:
                 candidatos.append((pontos, resposta.url, tipo.split(";")[0], resposta.status))
 

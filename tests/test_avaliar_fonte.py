@@ -171,6 +171,60 @@ def test_json_pontua_e_nome_de_vaga_pontua_mais(url, tipo, minimo):
     assert pontuar_endpoint(url, tipo) >= minimo
 
 
+# ---- o defeito medido no vagas.com.br, na primeira vez que a ferramenta rodou
+
+# URLs REAIS que apareceram no topo do relatorio, acima do endpoint de verdade.
+RASTREADORES = [
+    "https://px.ads.linkedin.com/attribution_trigger?pid=3994369"
+    "&url=https://www.vagas.com.br/vagas-de-analista-de-dados",
+    "https://gum.criteo.com/sid/json?origin=publishertagids&domain=vagas.com.br",
+    "https://fastlane.rubiconproject.com/a/api/fastlane.json?account_id=14940",
+]
+
+
+@pytest.mark.parametrize("url", RASTREADORES)
+def test_rastreador_de_anuncio_nao_e_candidato(url):
+    """MEDIDO: estes tres ficaram em 1o, 2o e 3o lugar do relatorio.
+
+    Pontuavam alto porque a busca das pistas varria a URL INTEIRA, e o
+    rastreador embute o endereco da pagina dentro do proprio parametro
+    ("&url=https://vagas.com.br/vagas-de-..."). Quanto mais o anuncio
+    rastreava, mais ele parecia ser a busca de vagas.
+    """
+    assert pontuar_endpoint(url, "application/json") == 0
+
+
+def test_pista_na_query_string_nao_conta():
+    """A raiz do defeito: so HOST e CAMINHO valem como pista."""
+    com_pista_no_caminho = pontuar_endpoint("https://api.site.com/vagas", "application/json")
+    so_na_query = pontuar_endpoint("https://api.site.com/x?url=/vagas-de-analista",
+                                   "application/json")
+    assert com_pista_no_caminho > so_na_query
+
+
+def test_endpoint_da_mesma_casa_ganha_peso():
+    """O sinal mais forte de todos: a API que o proprio site chama.
+
+    Caso real da Gupy — a pagina e portal.gupy.io e a API e
+    employability-portal.gupy.io. Subdominio diferente, mesma casa.
+    """
+    pagina = "https://portal.gupy.io/job-search/term=analista"
+    daqui = pontuar_endpoint("https://employability-portal.gupy.io/api/v1/jobs",
+                             "application/json", pagina)
+    de_fora = pontuar_endpoint("https://outro-site.com/api/v1/jobs",
+                               "application/json", pagina)
+    assert daqui > de_fora
+
+
+def test_o_endpoint_real_da_gupy_fica_acima_dos_rastreadores():
+    """O teste que resume o defeito: ordenar como o relatorio ordena."""
+    pagina = "https://www.vagas.com.br/vagas-de-analista-de-dados"
+    real = pontuar_endpoint("https://www.vagas.com.br/api/vagas/busca",
+                            "application/json", pagina)
+    for tracker in RASTREADORES:
+        assert real > pontuar_endpoint(tracker, "application/json", pagina)
+
+
 def test_o_que_nao_e_json_nao_e_candidato():
     assert pontuar_endpoint("https://x.com/jobs/style.css", "text/css") == 0
     assert pontuar_endpoint("https://x.com/jobs.png", "image/png") == 0

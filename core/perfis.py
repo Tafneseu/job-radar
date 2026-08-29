@@ -35,6 +35,8 @@ from core.config import (
 )
 from core.config_intl import (
     KEYWORDS_INTL,
+    KEYWORDS_CARGO_AMBIGUO_INTL,
+    QUALIFICADORES_DADOS,
     TERMOS_BUSCA_INTL,
     TERMOS_POR_CICLO_INTL,
     LOCATIONS_INTL,
@@ -235,8 +237,11 @@ PERFIL_BR = Perfil(
 
 
 # Regra primária: só remoto ("Remote"/"Remoto" em CIDADES_INTL), mercado
-# LATAM/Portugal/Espanha aceito. Sem cargo ambíguo/ferramenta ainda nesse
-# perfil — simples de propósito por ser o mais novo dos dois.
+# LATAM/Portugal/Espanha aceito.
+#
+# Cargo ambíguo entrou em 29/08 (ver KEYWORDS_CARGO_AMBIGUO_INTL em
+# config_intl.py para a medição): +7 vagas em 175, zero ruído. Ferramenta
+# continua fora — não foi medida.
 #
 # idiomas_exigidos: sem mercado declarado, exige espanhol/português/LATAM
 # no título (ver IDIOMAS_EXIGIDOS_INTL e comentário em RegrasFiltro) — a
@@ -244,8 +249,8 @@ PERFIL_BR = Perfil(
 # vaga em si.
 _REGRAS_INTL = RegrasFiltro(
     keywords_forte=KEYWORDS_INTL,
-    keywords_ambiguo=[],
-    qualificadores_dados=[],
+    keywords_ambiguo=KEYWORDS_CARGO_AMBIGUO_INTL,
+    qualificadores_dados=QUALIFICADORES_DADOS,
     ferramentas_titulo=[],
     qualificadores_cargo=[],
     cidades=CIDADES_INTL,
@@ -256,10 +261,14 @@ _REGRAS_INTL = RegrasFiltro(
 # Eixo secundário (Ibéria): vaga presencial/híbrida em Portugal/Espanha,
 # achada de propósito (LOCATIONS_INTL busca lá) mas que CIDADES_INTL (só
 # remoto) rejeitaria. DESLIGADO — mesmo motivo do eixo BR acima.
+# Mesmo cargo ambíguo da regra primária, de propósito: o eixo ibérico está
+# DESLIGADO hoje, então isto não muda comportamento nenhum agora. Mas deixar
+# os dois diferentes recriaria exatamente a divergência silenciosa que fez o
+# perfil internacional ficar sem o mecanismo por tanto tempo.
 _REGRAS_INTL_IBERIA = RegrasFiltro(
     keywords_forte=KEYWORDS_INTL,
-    keywords_ambiguo=[],
-    qualificadores_dados=[],
+    keywords_ambiguo=KEYWORDS_CARGO_AMBIGUO_INTL,
+    qualificadores_dados=QUALIFICADORES_DADOS,
     ferramentas_titulo=[],
     qualificadores_cargo=[],
     cidades=CIDADES_EUROPA_IBERICA,

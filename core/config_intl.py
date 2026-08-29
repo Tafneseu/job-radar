@@ -9,7 +9,62 @@
 # principal (reaproveita o bot já configurado, e o dedup por link no mesmo
 # jobs.db não tem risco de colisão — o id é hash do link, e vaga
 # internacional nunca vai ter o mesmo link de uma vaga brasileira).
-from core.config import TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, DB_PATH, CIDADES_EUROPA_IBERICA  # noqa: F401
+from core.config import (  # noqa: F401
+    TELEGRAM_BOT_TOKEN,
+    TELEGRAM_CHAT_ID,
+    DB_PATH,
+    CIDADES_EUROPA_IBERICA,
+    QUALIFICADORES_DADOS,
+)
+
+# Cargo ambíguo neste perfil: "Analyst" sozinho é usado em finanças, RH,
+# compras, risco — qualquer área. Só conta como match quando o título TAMBÉM
+# traz um qualificador de dados, exatamente como no perfil BR.
+#
+# MEDIDO (2026-08-29) contra 175 vagas reais do LinkedIn Intl (8 termos, 3
+# mercados, 85 já aprovadas). Foram testados DOIS caminhos na mesma amostra:
+#
+#   A) hoje                                         85 aprovadas
+#   B) + as keywords fortes em inglês que o BR tem  85   (+0)
+#   C) + cargo ambíguo "Analyst"                    92   (+7)
+#
+# O caminho B era a hipótese preferida — a de que o buraco fosse só as duas
+# listas de keywords terem divergido, e não falta de mecanismo. Ela foi
+# DERRUBADA pela medição: alinhar as listas não ganhou uma vaga sequer.
+#
+# As 7 que só o mecanismo pega, todas remotas de mercado aceito:
+#     Data & Analytics Analyst                            Lisboa
+#     Data & Analytics Analyst - Lisbon                   Lisboa
+#     Business & Data Integration Analyst - HR Analytics  Lisboa
+#     Senior Data Research Analyst (Portuguese speaker)   Madri
+#     Multilingual Data Research Analyst                  Madri
+#     Analytics Analyst - Remote Work                     Jalisco
+#     Data Services Analyst                               México
+#
+# As três primeiras vinham aparecendo no log, ciclo após ciclo, como
+# "barradas só pelo título". Zero ruído nas 175 da amostra.
+#
+# RISCO ACEITO, o mesmo do perfil BR: "Data Center Operations Analyst" e
+# "Data Entry Analyst" passam, porque casam o qualificador "data" sem serem
+# análise de dados. Não apareceram na amostra. Está travado em teste.
+#
+# LIMITE DA MEDIÇÃO, registrado por honestidade: os 8 termos usados eram os
+# mais específicos da lista ("data analyst spanish speaker" e variantes). Os
+# termos largos do perfil ("spanish speaker" sozinho) NÃO foram testados. A
+# proteção do qualificador é sobre o TÍTULO e independe do termo que achou a
+# vaga, então não deve mudar — mas isso é raciocínio, não medição.
+KEYWORDS_CARGO_AMBIGUO_INTL = ["Analyst"]
+
+# NÃO entraram, e por quê (medido na mesma amostra):
+#   "Especialista" -> 0 vagas a mais. Mesmo resultado do teste no perfil BR.
+#   "Analista"     -> 0 vagas a mais aqui (no BR trazia DBA, e a usuária
+#                     decidiu deixar de fora).
+# Sem número, seria palpite.
+#
+# QUALIFICADORES_DADOS vem do config.py em vez de uma lista própria: é a
+# mesma lista que o perfil BR usa e que a medição acima empregou. Uma adição
+# óbvia seria "datos" (espanhol), que falta ali — mas ela NÃO foi medida,
+# então fica como proposta, não como mudança.
 
 # Cargo em múltiplos idiomas — vaga internacional pode ter o anúncio escrito
 # em inglês, português ou espanhol, dependendo de quem contratou.

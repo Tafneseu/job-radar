@@ -245,7 +245,20 @@ class SolidesScraper(BaseScraper):
 
             time.sleep(PAUSA_ENTRE_PAGINAS)
 
-        if total_paginas and total_paginas > MAX_PAGINAS:
+        else:
+            # BUG CORRIGIDO (introduzido em d6253e9): o aviso antigo testava
+            # "total_paginas > MAX_PAGINAS", ou seja, se o termo TEM mais
+            # paginas que a trava -- nao se a trava foi realmente atingida.
+            # No ciclo de 30/08 'power bi' parou certinho na pagina 18 de 53
+            # POR IDADE, como devia, e mesmo assim disparou o aviso. Alarme
+            # falso, da mesma familia dos que passamos a semana eliminando.
+            #
+            # O 'else' de um 'for' em Python so roda quando o laco termina SEM
+            # break. Como toda parada legitima (0 resultado, ultima pagina,
+            # pagina toda antiga, erro de rede, status inesperado) sai por
+            # break, chegar aqui significa exatamente uma coisa: rodou as
+            # MAX_PAGINAS inteiras e nenhuma pagina era antiga o bastante pra
+            # parar -- que e o unico caso em que o aviso e verdade.
             logger.warning(
                 f"[Solides] '{termo}': bateu a trava de {MAX_PAGINAS} páginas sem "
                 f"chegar em vaga de {DIAS_PARA_PARAR} dias ({total_paginas} páginas no "

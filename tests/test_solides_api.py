@@ -19,12 +19,14 @@ campo errado nao quebra nada -- so muda em silencio o que e aprovado.
 O item de exemplo e a RESPOSTA REAL, copiada da sondagem.
 """
 
+import logging
 from datetime import date, timedelta
 
 import pytest
 
 from core.job import Job
 from core.perfis import PERFIL_BR
+from scrapers import solides
 from scrapers.solides import (
     DIAS_PARA_PARAR,
     montar_job,
@@ -184,3 +186,70 @@ def test_o_limite_bate_com_o_do_filtro():
     """
     from core.job import DIAS_PARA_PUBLICACAO_ANTIGA
     assert DIAS_PARA_PARAR == DIAS_PARA_PUBLICACAO_ANTIGA
+
+
+# ------------------- o aviso da trava (regressao de bug) -------------------
+
+
+class _RespostaFalsa:
+    status_code = 200
+
+    def __init__(self, corpo):
+        self._corpo = corpo
+
+    def json(self):
+        return self._corpo
+
+
+def _api_falsa(monkeypatch, idade_das_vagas, total_paginas):
+    """Finge a API da Solides: sempre responde uma pagina cheia de vagas com a
+    idade pedida, dizendo que existem `total_paginas` no total."""
+    def get(url, params=None, timeout=None, headers=None):
+        itens = [
+            dict(VAGA_API, createdAt=(HOJE - timedelta(days=idade_das_vagas)).isoformat())
+            for _ in range(10)
+        ]
+        return _RespostaFalsa({"data": {
+            "data": itens,
+            "count": total_paginas * 10,
+            "totalPages": total_paginas,
+        }})
+
+    monkeypatch.setattr(solides.requests, "get", get)
+    monkeypatch.setattr(solides.time, "sleep", lambda _: None)
+
+
+def _avisou_da_trava(caplog):
+    return any("bateu a trava" in r.message for r in caplog.records)
+
+
+def test_parar_por_idade_nao_dispara_o_aviso_da_trava(monkeypatch, caplog):
+    """REGRESSAO. O aviso antigo perguntava "esse termo TEM mais paginas que a
+    trava?" em vez de "a trava foi atingida?". No ciclo de 30/08 'power bi'
+    parou certinho na pagina 18 de 53 POR IDADE -- que e o comportamento
+    correto -- e ainda assim saiu o aviso de que a trava tinha estourado.
+
+    Aqui: 53 paginas (bem mais que a trava), mas as vagas tem 90 dias, entao
+    a primeira pagina ja para por idade. Nao pode avisar nada."""
+    _api_falsa(monkeypatch, idade_das_vagas=90, total_paginas=53)
+    with caplog.at_level(logging.WARNING, logger=solides.logger.name):
+        solides.SolidesScraper(["power bi"]).buscar_vagas()
+    assert not _avisou_da_trava(caplog)
+
+
+def test_estourar_a_trava_de_verdade_dispara_o_aviso(monkeypatch, caplog):
+    """O outro lado: vaga nova ate o fim e mais paginas do que a trava aguenta.
+    Ai a trava e realmente o motivo da parada, e o aviso e informacao."""
+    _api_falsa(monkeypatch, idade_das_vagas=1, total_paginas=53)
+    with caplog.at_level(logging.WARNING, logger=solides.logger.name):
+        solides.SolidesScraper(["power bi"]).buscar_vagas()
+    assert _avisou_da_trava(caplog)
+
+
+def test_acabar_as_paginas_do_termo_nao_e_estourar_a_trava(monkeypatch, caplog):
+    """Termo pequeno: 2 paginas so, todas com vaga nova. Leu tudo que existia.
+    Nao ha nada a avisar."""
+    _api_falsa(monkeypatch, idade_das_vagas=1, total_paginas=2)
+    with caplog.at_level(logging.WARNING, logger=solides.logger.name):
+        solides.SolidesScraper(["power bi"]).buscar_vagas()
+    assert not _avisou_da_trava(caplog)

@@ -1,8 +1,8 @@
 name: JobRadar
 
 on:
-  # AGENDAMENTO DESLIGADO em 30/08 -- o ciclo esta rodando na maquina da
-  # usuaria (`python main.py --perfil brasil internacional`, sem --once).
+  # ONDE O CICLO RODA -- historico, porque isso ja mudou de lugar duas
+  # vezes e o motivo importa mais que a escolha.
   #
   # CORRECAO DE 30/08, 16:30: a versao anterior deste comentario dizia que
   # o motivo era bloqueio ao IP de datacenter do Actions. ESTAVA ERRADO --
@@ -20,11 +20,12 @@ on:
   # ciclo local rodando sem empurrar o banco, este aqui parte de um banco
   # desatualizado e RENOTIFICA vaga ja avisada.
   #
-  # PRA VOLTAR: descomente as duas linhas abaixo (e pare o ciclo local).
-  # workflow_dispatch segue ligado, entao da pra disparar um ciclo na mao
-  # pela aba Actions a qualquer momento.
-  # schedule:
-  #   - cron: "0 */3 * * *"
+  # RELIGADO em 30/08 19:50, depois de um ciclo rodado na maquina da
+  # usuaria. Rodar la nao melhorou busca nenhuma (deu 22 vazias contra 13
+  # daqui), e exige o computador ligado -- entao voltou pro automatico.
+  # Um lugar por vez, sempre: ver a nota do data/jobs.db acima.
+  schedule:
+    - cron: "0 */3 * * *"
   workflow_dispatch: {}
 
 concurrency:
@@ -71,6 +72,23 @@ jobs:
         # um projeto só com dois perfis selecionáveis (ver core/perfis.py); os
         # dois rodam na mesma execução/commit, um após o outro.
         run: python main.py --perfil brasil internacional --once
+
+      # jobradar.log esta no .gitignore e o disco do runner e descartado ao
+      # fim da execucao -- ou seja, ate aqui NENHUM log de ciclo do Actions
+      # sobrevivia. Isso so nao doia porque a usuaria colava o log na mao.
+      # Passou a doer quando analisar_vazios.py comecou a precisar de VARIOS
+      # ciclos seguidos pra responder se busca vazia se recupera sozinha.
+      #
+      # if: always() de proposito: o log do ciclo que QUEBROU e justamente o
+      # que mais interessa guardar.
+      - name: Guardar o log do ciclo (pra analisar_vazios.py)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: jobradar-log-${{ github.run_number }}
+          path: jobradar.log
+          retention-days: 14
+          if-no-files-found: warn
 
       - name: Salvar vagas já vistas (evita notificação duplicada)
         run: |

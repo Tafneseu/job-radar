@@ -19,11 +19,19 @@ campo errado nao quebra nada -- so muda em silencio o que e aprovado.
 O item de exemplo e a RESPOSTA REAL, copiada da sondagem.
 """
 
+from datetime import date, timedelta
+
 import pytest
 
 from core.job import Job
 from core.perfis import PERFIL_BR
-from scrapers.solides import montar_job, montar_local, montar_modalidade
+from scrapers.solides import (
+    DIAS_PARA_PARAR,
+    montar_job,
+    montar_local,
+    montar_modalidade,
+    pagina_toda_antiga,
+)
 
 VAGA_API = {
     "id": 912529,
@@ -119,3 +127,60 @@ def test_o_job_montado_e_um_job_de_verdade():
     assert isinstance(job, Job)
     assert job.id and job.chave_secundaria
     assert job.pontuar_relevancia(PERFIL_BR.regras) >= 0
+
+
+# --------------------- onde parar de paginar (medido) ---------------------
+
+HOJE = date(2026, 8, 30)
+
+
+def _pagina(*idades_em_dias):
+    """Uma pagina da API, com vagas das idades dadas."""
+    return [{"createdAt": (HOJE - timedelta(days=d)).isoformat()} for d in idades_em_dias]
+
+
+def test_pagina_com_vaga_nova_nao_para():
+    """Basta UMA vaga dentro do limite pra valer a pena continuar."""
+    assert pagina_toda_antiga(_pagina(90, 60, 3), DIAS_PARA_PARAR, HOJE) is False
+
+
+def test_pagina_toda_velha_para():
+    assert pagina_toda_antiga(_pagina(45, 60, 90), DIAS_PARA_PARAR, HOJE) is True
+
+
+def test_no_limite_exato_ainda_nao_para():
+    """Vaga com exatamente 30 dias ainda conta -- e o mesmo limiar que
+    Job.publicacao_antiga usa pra marcar "pode ja estar preenchida"."""
+    assert pagina_toda_antiga(_pagina(DIAS_PARA_PARAR), DIAS_PARA_PARAR, HOJE) is False
+    assert pagina_toda_antiga(_pagina(DIAS_PARA_PARAR + 1), DIAS_PARA_PARAR, HOJE) is True
+
+
+@pytest.mark.parametrize("itens", [
+    [],                                    # pagina vazia
+    [{"createdAt": ""}],                   # sem data
+    [{"createdAt": "sei la"}],             # data invalida
+    [{"outro_campo": 1}],                  # campo ausente
+])
+def test_sem_data_legivel_nao_para(itens):
+    """Sem data nao ha o que concluir. Parar por engano custa VAGA; continuar
+    por engano custa uma requisicao. Erra pro lado barato."""
+    assert pagina_toda_antiga(itens, DIAS_PARA_PARAR, HOJE) is False
+
+
+def test_data_com_hora_junto_e_lida():
+    """A Solides manda so a data, mas nao custa aguentar ISO completo."""
+    itens = [{"createdAt": "2026-01-01T10:00:00.000Z"}]
+    assert pagina_toda_antiga(itens, DIAS_PARA_PARAR, HOJE) is True
+
+
+def test_o_limite_bate_com_o_do_filtro():
+    """MEDIDO: parar em 30 dias custa 4,8 requisicoes por termo, praticamente
+    o mesmo que o teto fixo de 15 paginas (4,6) -- mas le fundo onde ha vaga
+    nova e sai cedo onde o termo e parado.
+
+    30 e tambem o limiar de Job.publicacao_antiga: alem disso, a vaga ja
+    ganharia o aviso de "pode ja estar preenchida" e sairia do alerta
+    imediato. Ler mais fundo seria buscar o que o filtro desprioriza.
+    """
+    from core.job import DIAS_PARA_PUBLICACAO_ANTIGA
+    assert DIAS_PARA_PARAR == DIAS_PARA_PUBLICACAO_ANTIGA

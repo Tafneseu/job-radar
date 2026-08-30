@@ -1,3 +1,4 @@
+from datetime import date, datetime, timezone
 import time
 
 import requests
@@ -38,11 +39,50 @@ URL_API = "https://apigw.solides.com.br/jobs/v3/portal-vacancies-new"
 # devolvem count=0, nao so lista vazia. O tamanho de pagina e fixo.
 TAKE = 10
 
-# Paginas por termo. NAO e limite da API (o termo medido tinha 21) -- e
-# escolha: a lista vem da mais recente pra mais antiga, entao as ultimas
-# paginas sao as vagas mais velhas. 15 paginas = 150 vagas, 5x o teto
-# anterior, e ainda deixa o ciclo mais rapido que os ~7 minutos de hoje.
-MAX_PAGINAS = 15
+# ONDE PARAR DE PAGINAR.
+#
+# A primeira versao usava teto fixo de 15 paginas, escolhido porque o unico
+# termo que eu tinha medido tinha 21. Ao ver "power bi: 523 vagas em 53
+# paginas, lidas as 15 primeiras" no log, minha leitura foi que o teto estava
+# APERTADO e vaga estava sendo perdida.
+#
+# MEDIDO (30/08), sondando os 45 termos do perfil BR: era o contrario.
+#
+#   termo                 vagas  pags   pagina em que a vaga passa de 7 dias
+#   sql                     642    65          7
+#   power bi                523    53          6
+#   python                  347    35          5
+#   analista de dados       205    21          4
+#   business intelligence   138    14          3
+#
+# NENHUM termo passa da pagina 7 antes das vagas ficarem com mais de uma
+# semana. O teto de 15 nunca cortou vaga nova -- ele lia 9 paginas a mais de
+# vaga VELHA. Estava frouxo, nao apertado.
+#
+# Por isso o criterio deixou de ser "quantas paginas" e passou a ser "ate
+# quando". A lista vem da mais recente pra mais antiga, entao basta parar
+# quando as vagas ficarem velhas demais pra interessar. Custo medido, em
+# requisicoes por termo:
+#
+#     teto fixo de 15 paginas   4,6
+#     parar apos  7 dias        2,2
+#     parar apos 14 dias        3,0
+#     parar apos 30 dias        4,8   <- escolhido
+#
+# 30 dias custa praticamente o mesmo que o teto de hoje, mas distribui muito
+# melhor: le fundo onde ha volume novo (power bi vai ate a pagina 18) e sai
+# na pagina 2 onde o termo e parado. E se adapta sozinho quando o mercado
+# muda, sem precisar recalibrar numero nenhum.
+#
+# 30 dias tambem e o limiar que Job.publicacao_antiga ja usa -- vaga mais
+# velha que isso ganha o aviso de "pode ja estar preenchida" e sai do alerta
+# imediato. Ler alem disso seria buscar exatamente o que o filtro desprioriza.
+DIAS_PARA_PARAR = 30
+
+# Trava de seguranca, nao criterio: impede laco infinito se a API passar a
+# devolver data invalida ou parar de ordenar por data. O termo mais fundo
+# medido (sql) precisa de 19 paginas pra passar de 30 dias.
+MAX_PAGINAS = 30
 
 PAUSA_ENTRE_PAGINAS = 0.5
 TIMEOUT = 30
@@ -60,6 +100,29 @@ _MODALIDADE = {
     "home office": "Remoto",
     "homeoffice": "Remoto",
 }
+
+
+def pagina_toda_antiga(itens: list[dict], dias: int, hoje: date | None = None) -> bool:
+    """A vaga MAIS NOVA desta pagina ja passou do limite de idade?
+
+    A lista da API vem ordenada da mais recente pra mais antiga, entao a
+    partir daqui so vem coisa ainda mais velha -- da pra parar.
+
+    Devolve False quando nenhuma data da pra ler: sem data nao ha o que
+    concluir, e parar por engano custa vaga. Errar pro lado de continuar
+    custa uma requisicao.
+    """
+    hoje = hoje or datetime.now(timezone.utc).date()
+    idades = []
+    for vaga in itens:
+        bruto = (vaga.get("createdAt") or "").strip()[:10]
+        try:
+            idades.append((hoje - date.fromisoformat(bruto)).days)
+        except ValueError:
+            continue
+    if not idades:
+        return False
+    return min(idades) > dias
 
 
 def montar_local(vaga: dict) -> str:
@@ -172,11 +235,20 @@ class SolidesScraper(BaseScraper):
 
             if not lote or pagina >= total_paginas:
                 break
+
+            if pagina_toda_antiga(lote, DIAS_PARA_PARAR):
+                logger.info(
+                    f"[Solides] '{termo}': parou na página {pagina} de {total_paginas} "
+                    f"— daqui pra frente só vaga com mais de {DIAS_PARA_PARAR} dias."
+                )
+                break
+
             time.sleep(PAUSA_ENTRE_PAGINAS)
 
         if total_paginas and total_paginas > MAX_PAGINAS:
-            logger.info(
-                f"[Solides] '{termo}': {total} vagas em {total_paginas} páginas, lidas as "
-                f"{MAX_PAGINAS} primeiras (teto do scraper, não fim dos resultados)."
+            logger.warning(
+                f"[Solides] '{termo}': bateu a trava de {MAX_PAGINAS} páginas sem "
+                f"chegar em vaga de {DIAS_PARA_PARAR} dias ({total_paginas} páginas no "
+                "total) — a API pode ter parado de ordenar por data."
             )
         return vagas

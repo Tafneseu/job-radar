@@ -1,26 +1,28 @@
 name: JobRadar
 
 on:
-  # AGENDAMENTO DESLIGADO em 30/08 -- o ciclo passou a rodar na maquina da
-  # usuaria, de IP residencial.
+  # AGENDAMENTO DESLIGADO em 30/08 -- o ciclo esta rodando na maquina da
+  # usuaria (`python main.py --perfil brasil internacional`, sem --once).
   #
-  # POR QUE: MEDIDO em 30/08, o LinkedIn devolve busca VAZIA pro IP de
-  # datacenter do Actions. Os 7 pares que falharam num ciclo foram repetidos
-  # do IP residencial minutos depois e voltaram 8 a 10 vagas cada. Repetir a
-  # requisicao nao resolve (13 tentativas, 0 recuperacoes -- ver o bloco
-  # MEDIDO no topo de scrapers/linkedin.py). Rodar de casa resolve por
-  # construcao.
+  # CORRECAO DE 30/08, 16:30: a versao anterior deste comentario dizia que
+  # o motivo era bloqueio ao IP de datacenter do Actions. ESTAVA ERRADO --
+  # o ciclo local, de IP residencial, deu 22 buscas vazias contra 13 do
+  # Actions, e o mesmo par devolve 0 e 10 em horas diferentes do MESMO IP.
+  # A medicao inteira esta no topo de scrapers/linkedin.py. Rodar aqui ou
+  # na maquina da usuaria NAO muda o resultado das buscas.
   #
-  # POR QUE DESLIGAR EM VEZ DE DEIXAR OS DOIS: a deduplicacao mora em
-  # data/jobs.db, que este workflow commita de volta no repositorio. Se o
-  # ciclo local roda e nao empurra o banco, o Actions parte de um banco
-  # desatualizado e RENOTIFICA vaga que ja foi avisada. Dois lugares
-  # rodando = notificacao duplicada e banco divergente.
+  # Entao a escolha entre os dois e de conveniencia, nao tecnica: aqui roda
+  # sozinho e nao depende do computador ligado; la o ciclo termina mais
+  # rapido (~26 min contra ~35) e da pra ver o log ao vivo.
   #
-  # PRA VOLTAR: descomente as duas linhas do schedule abaixo. Nada mais
-  # mudou -- o workflow inteiro continua igual e o workflow_dispatch segue
-  # ligado, entao da pra disparar um ciclo na mao pelo site do GitHub a
-  # qualquer momento (aba Actions > JobRadar > Run workflow).
+  # O QUE NAO PODE e deixar os dois ligados: a deduplicacao mora em
+  # data/jobs.db, que este workflow commita de volta no repositorio. Com o
+  # ciclo local rodando sem empurrar o banco, este aqui parte de um banco
+  # desatualizado e RENOTIFICA vaga ja avisada.
+  #
+  # PRA VOLTAR: descomente as duas linhas abaixo (e pare o ciclo local).
+  # workflow_dispatch segue ligado, entao da pra disparar um ciclo na mao
+  # pela aba Actions a qualquer momento.
   # schedule:
   #   - cron: "0 */3 * * *"
   workflow_dispatch: {}

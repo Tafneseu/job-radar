@@ -42,74 +42,63 @@ MAX_PAGINAS_REMOTO = 2
 # manter enxuto aqui é o que evita esse custo virar desproporcional.
 MAX_PAGINAS_CIDADE = 1
 
-# POR QUE NAO EXISTE MAIS SEGUNDA TENTATIVA AQUI (medido, nao opinado).
+# POR QUE UMA BUSCA VAZIA AQUI NAO PROVA NADA (medido tres vezes, 29-30/08).
 #
-# MEDIDO no ciclo do GitHub Actions de 29/08: 15 avisos de "Nenhum resultado
-# retornado" num unico ciclo, concentrados nas buscas POR CIDADE
-# ('looker' em Aracaju, 'qlik' em Caruaru, 'tableau' em Natal).
+# O sintoma: buscas voltam sem card nenhum, concentradas nas passadas POR
+# CIDADE. Parecia obvio que era alarme falso -- cidade pequena com termo de
+# nicho nao tem vaga mesmo. Nao e: rodadas isoladas devolvem 8 a 10 cards
+# pras mesmas buscas. Entao ha vaga sendo perdida.
 #
-# A hipotese obvia era alarme falso -- cidade pequena + ferramenta de nicho
-# nao tem vaga mesmo. MEDIDO ao vivo e DERRUBADO: essas mesmas buscas
-# devolvem 10, 8, 10 cards quando rodadas isoladas. Nao e busca vazia; e
-# falha, e vaga esta sendo perdida.
+# HIPOTESE 1, DERRUBADA -- 'e bloqueio ao IP de datacenter do Actions':
 #
-# POR QUE NAO DA PRA REPRODUZIR AQUI: 45 buscas seguidas da maquina da
-# usuaria (IP residencial) deram ZERO vazias. O ciclo real roda no GitHub
-# Actions, de IP de datacenter compartilhado, que o LinkedIn trata com muito
-# mais rigor. O status 429 aparece nos dois ambientes, mas so no Actions o
-# resultado chega vazio. Ou seja: a causa e inferida, nao provada, e a
-# verificacao vem dos logs do Actions ao longo dos proximos dias.
+#     ciclo no GitHub Actions (IP de datacenter) .... 13 buscas vazias
+#     ciclo na maquina da usuaria (IP residencial) .. 22 buscas vazias
 #
-# Por isso a correcao e SEGURA POR CONSTRUCAO em vez de precisa: uma
-# requisicao a mais so quando a busca ja falhou (~15 por ciclo, nao 240).
-# Se for rate-limit, recupera a vaga. Se nao for, a segunda tentativa volta
-# vazia igual, o aviso dispara como antes e nada piorou.
+#   Deu MAIS vazio no IP residencial. A conclusao anterior estava errada.
 #
-# Efeito colateral bom: o aviso passa a sair so depois de DUAS tentativas,
-# entao deixa de ser ruido e vira sinal.
-# MEDIDO no ciclo de 30/08, com a pausa de 5s ja em producao: a segunda
-# tentativa disparou 7 vezes e recuperou ZERO. Se fosse bloqueio passageiro,
-# alguma teria voltado.
+# HIPOTESE 2, DERRUBADA -- 'e a fila: o LinkedIn corta depois de N
+# requisicoes seguidas no mesmo ciclo':
 #
-# Os 7 pares exatos que falharam foram entao repetidos do IP RESIDENCIAL da
-# usuaria, minutos depois:
+#   Os 22 pares vazios do ciclo local foram repetidos ISOLADOS, do mesmo
+#   IP, 20 minutos depois. Se fosse a fila, todos voltariam com vaga.
+#   Voltaram 10 de 22:
 #
-#     business intelligence  Caruaru       8 cards
-#     business intelligence  Manaus       10 cards
-#     data analyst           Caruaru      10 cards
-#     power bi               Joao Pessoa  10 cards
-#     power bi               Manaus       10 cards
-#     power bi               Maceio       10 cards   (status 429!)
-#     power bi               Aracaju      10 cards
+#     mis analyst            Joao Pessoa      0 no ciclo -> 10 isolado
+#     mis analyst            Maceio           0 no ciclo -> 10 isolado
+#     mis analyst            Fortaleza        0 no ciclo -> 10 isolado
+#     reporting analyst      Caruaru          0 no ciclo -> 10 isolado
+#     data specialist        Caruaru          0 no ciclo -> 10 isolado
+#     data quality analyst   Maceio           0 no ciclo ->  9 isolado
+#     data intelligence an.  Caruaru          0 no ciclo ->  6 isolado
+#     data quality analyst   Campina Grande   0 no ciclo ->  2 isolado
+#     mis analyst            Brazil (remoto)  0 no ciclo -> 10 isolado
+#     mis analyst            Chile  (remoto)  0 no ciclo -> 10 isolado
 #
-# 0 de 7 vazios. TODAS tem vaga. Ou seja: o bloqueio no datacenter do Actions
-# e real, dura MAIS que 5 segundos, e vaga esta sendo perdida todo ciclo.
+#   e 12 continuaram vazios. E 'power bi'/Maceio fez o caminho inverso:
+#   10 cards numa medicao isolada de 29/08, 0 no ciclo de 30/08, 0 de novo
+#   na repeticao isolada de 30/08.
 #
-# Detalhe que fecha o diagnostico: "power bi / Maceio" voltou 429 COM 10
-# cards do IP residencial. O LinkedIn avisa que esta limitando mas entrega
-# assim mesmo. No datacenter ele limita e entrega VAZIO -- por isso o status
-# nao servia como sinal (medido em 29/08) e a contagem de cards serve.
+# O QUE SOBRA, E O QUE OS NUMEROS SUSTENTAM: mesmo IP, mesmo par, resposta
+# diferente em horas diferentes. Nem o IP nem a fila explicam. O formato da
+# resposta diz o resto -- quase todo resultado e 0 ou 10, pagina cheia ou
+# nada. Inventario real de cidade pequena com termo de nicho apareceria
+# como 1, 2, 3, 4. Bimodal assim e decisao de servidor, nao contagem de
+# vaga: o endpoint guest do LinkedIn as vezes serve a pagina e as vezes
+# devolve vazio, e nao da pra prever qual.
 #
-# A correcao anterior (5s) acertou a direcao e errou a dose: eu escolhi 5 por
-# chute, porque nao tinha como medir de dentro do Actions.
+# JA TENTADO E MEDIDO COMO INUTIL -- NAO REFACA: repetir a busca dentro do
+# mesmo ciclo. Com pausa de 5s, depois com 10s e 30s. Resultado: 13 buscas
+# vazias, 13 repeticoes disparadas, 0 recuperacoes, e +9 minutos por ciclo.
+# A escala em que a resposta muda e de DEZENAS DE MINUTOS, nao de segundos
+# -- por isso esperar dentro do ciclo nao alcanca, e por isso o rodizio de
+# termos ja funciona como nova tentativa de graca: o mesmo par volta em
+# ciclos seguintes, e ai costuma vir cheio.
 #
-# VEREDITO -- ciclo do Actions de 30/08 16:25, com as pausas de 10s e 30s
-# ja em producao: 13 buscas voltaram vazias, as 13 dispararam segunda E
-# terceira tentativa, e 0 recuperaram. Nem 10s nem 30s trouxeram uma vaga
-# sequer. O ciclo passou de ~25 para ~35 minutos: 9 minutos gastos so
-# esperando, com ganho zero.
-#
-# Por isso a repeticao foi REMOVIDA e voltou a ser uma tentativa so. O
-# bloqueio do datacenter dura mais do que qualquer espera que caiba dentro
-# de um ciclo; insistir custa tempo e nao traz vaga. Isso agora e MEDIDO,
-# nao suposto -- e foi medido justamente porque as duas pausas diferentes
-# existiam pra responder essa pergunta.
-#
-# O aviso abaixo continua, mas agora diz a verdade: busca vazia vinda do
-# Actions quase nunca e '0 vaga real', e bloqueio por IP de datacenter --
-# os 7 pares listados acima provam. A saida, se formos atras dela, e
-# reduzir a pressao (menos busca por cidade, ou espacar o ciclo), nao
-# repetir a mesma requisicao que ja foi bloqueada.
+# CONCLUSAO PRATICA: busca vazia aqui e SINAL FRACO. Nao da pra distinguir
+# 'nao tem vaga' de 'o LinkedIn nao quis responder agora' -- por isso o
+# aviso abaixo nao afirma nem uma coisa nem outra. Ele serve pra ver
+# TENDENCIA no log (se um dia forem 200 e nao 20, mudou alguma coisa), nao
+# pra agir em cima de uma ocorrencia.
 
 
 class LinkedInScraper(BaseScraper):
@@ -248,10 +237,11 @@ class LinkedInScraper(BaseScraper):
                     if not cards:
                         if pagina == 0:
                             logger.warning(
-                                f"[LinkedIn] Nenhum resultado retornado ({tag}) — "
-                                "no GitHub Actions isso costuma ser bloqueio por IP "
-                                "de datacenter, não ausência de vaga (ver o MEDIDO "
-                                "no topo deste arquivo)."
+                                f"[LinkedIn] Nenhum resultado retornado ({tag}) — pode "
+                                "ser ausência de vaga ou resposta instável do "
+                                "LinkedIn; medido, não dá pra distinguir os dois "
+                                "(ver o MEDIDO no topo deste arquivo). O rodízio "
+                                "de termos costuma recuperar em ciclos seguintes."
                             )
                         break
 

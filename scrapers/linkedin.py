@@ -42,7 +42,7 @@ MAX_PAGINAS_REMOTO = 2
 # manter enxuto aqui é o que evita esse custo virar desproporcional.
 MAX_PAGINAS_CIDADE = 1
 
-# Segunda chance quando a primeira pagina volta sem card nenhum.
+# POR QUE NAO EXISTE MAIS SEGUNDA TENTATIVA AQUI (medido, nao opinado).
 #
 # MEDIDO no ciclo do GitHub Actions de 29/08: 15 avisos de "Nenhum resultado
 # retornado" num unico ciclo, concentrados nas buscas POR CIDADE
@@ -93,11 +93,23 @@ MAX_PAGINAS_CIDADE = 1
 # A correcao anterior (5s) acertou a direcao e errou a dose: eu escolhi 5 por
 # chute, porque nao tinha como medir de dentro do Actions.
 #
-# ESTAS PAUSAS TAMBEM MEDEM: duas tentativas com esperas diferentes, e o log
-# diz QUAL funcionou. Se a maioria recuperar na de 10s, da pra baixar; se so
-# na de 30s, e sinal de que o bloqueio e longo e talvez a saida seja espacar
-# o ciclo inteiro em vez de repetir. Um ciclo ja da a resposta.
-PAUSAS_DE_NOVA_TENTATIVA = (10, 30)
+# VEREDITO -- ciclo do Actions de 30/08 16:25, com as pausas de 10s e 30s
+# ja em producao: 13 buscas voltaram vazias, as 13 dispararam segunda E
+# terceira tentativa, e 0 recuperaram. Nem 10s nem 30s trouxeram uma vaga
+# sequer. O ciclo passou de ~25 para ~35 minutos: 9 minutos gastos so
+# esperando, com ganho zero.
+#
+# Por isso a repeticao foi REMOVIDA e voltou a ser uma tentativa so. O
+# bloqueio do datacenter dura mais do que qualquer espera que caiba dentro
+# de um ciclo; insistir custa tempo e nao traz vaga. Isso agora e MEDIDO,
+# nao suposto -- e foi medido justamente porque as duas pausas diferentes
+# existiam pra responder essa pergunta.
+#
+# O aviso abaixo continua, mas agora diz a verdade: busca vazia vinda do
+# Actions quase nunca e '0 vaga real', e bloqueio por IP de datacenter --
+# os 7 pares listados acima provam. A saida, se formos atras dela, e
+# reduzir a pressao (menos busca por cidade, ou espacar o ciclo), nao
+# repetir a mesma requisicao que ja foi bloqueada.
 
 
 class LinkedInScraper(BaseScraper):
@@ -232,36 +244,14 @@ class LinkedInScraper(BaseScraper):
                     time.sleep(2)
 
                     cards = page.query_selector_all("li")
-                    if not cards and pagina == 0:
-                        # Ver PAUSAS_DE_NOVA_TENTATIVA no topo: no Actions a
-                        # busca volta vazia por bloqueio, não por falta de
-                        # vaga -- as 7 que falharam em 30/08 tinham 8 a 10
-                        # vagas quando repetidas de outro IP.
-                        for numero, pausa in enumerate(PAUSAS_DE_NOVA_TENTATIVA, start=2):
-                            logger.info(
-                                f"[LinkedIn] Sem resultado ({tag}) — {numero}ª tentativa "
-                                f"em {pausa}s."
-                            )
-                            time.sleep(pausa)
-                            page.goto(url, timeout=60000)
-                            time.sleep(2)
-                            cards = page.query_selector_all("li")
-                            if cards:
-                                logger.info(
-                                    f"[LinkedIn] {numero}ª tentativa (após {pausa}s) "
-                                    f"recuperou {len(cards)} resultado(s) ({tag}) — a "
-                                    "primeira foi bloqueio, não vaga zero."
-                                )
-                                break
 
                     if not cards:
                         if pagina == 0:
-                            total = 1 + len(PAUSAS_DE_NOVA_TENTATIVA)
                             logger.warning(
-                                f"[LinkedIn] Nenhum resultado retornado ({tag}) em "
-                                f"{total} tentativas (até "
-                                f"{PAUSAS_DE_NOVA_TENTATIVA[-1]}s de espera) — bloqueio "
-                                "longo, ou 0 vaga real."
+                                f"[LinkedIn] Nenhum resultado retornado ({tag}) — "
+                                "no GitHub Actions isso costuma ser bloqueio por IP "
+                                "de datacenter, não ausência de vaga (ver o MEDIDO "
+                                "no topo deste arquivo)."
                             )
                         break
 

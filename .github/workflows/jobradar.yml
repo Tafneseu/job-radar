@@ -1,8 +1,28 @@
 name: JobRadar
 
 on:
-  schedule:
-    - cron: "0 */3 * * *"
+  # AGENDAMENTO DESLIGADO em 30/08 -- o ciclo passou a rodar na maquina da
+  # usuaria, de IP residencial.
+  #
+  # POR QUE: MEDIDO em 30/08, o LinkedIn devolve busca VAZIA pro IP de
+  # datacenter do Actions. Os 7 pares que falharam num ciclo foram repetidos
+  # do IP residencial minutos depois e voltaram 8 a 10 vagas cada. Repetir a
+  # requisicao nao resolve (13 tentativas, 0 recuperacoes -- ver o bloco
+  # MEDIDO no topo de scrapers/linkedin.py). Rodar de casa resolve por
+  # construcao.
+  #
+  # POR QUE DESLIGAR EM VEZ DE DEIXAR OS DOIS: a deduplicacao mora em
+  # data/jobs.db, que este workflow commita de volta no repositorio. Se o
+  # ciclo local roda e nao empurra o banco, o Actions parte de um banco
+  # desatualizado e RENOTIFICA vaga que ja foi avisada. Dois lugares
+  # rodando = notificacao duplicada e banco divergente.
+  #
+  # PRA VOLTAR: descomente as duas linhas do schedule abaixo. Nada mais
+  # mudou -- o workflow inteiro continua igual e o workflow_dispatch segue
+  # ligado, entao da pra disparar um ciclo na mao pelo site do GitHub a
+  # qualquer momento (aba Actions > JobRadar > Run workflow).
+  # schedule:
+  #   - cron: "0 */3 * * *"
   workflow_dispatch: {}
 
 concurrency:

@@ -67,7 +67,37 @@ MAX_PAGINAS_CIDADE = 1
 #
 # Efeito colateral bom: o aviso passa a sair so depois de DUAS tentativas,
 # entao deixa de ser ruido e vira sinal.
-PAUSA_SEGUNDA_TENTATIVA = 5
+# MEDIDO no ciclo de 30/08, com a pausa de 5s ja em producao: a segunda
+# tentativa disparou 7 vezes e recuperou ZERO. Se fosse bloqueio passageiro,
+# alguma teria voltado.
+#
+# Os 7 pares exatos que falharam foram entao repetidos do IP RESIDENCIAL da
+# usuaria, minutos depois:
+#
+#     business intelligence  Caruaru       8 cards
+#     business intelligence  Manaus       10 cards
+#     data analyst           Caruaru      10 cards
+#     power bi               Joao Pessoa  10 cards
+#     power bi               Manaus       10 cards
+#     power bi               Maceio       10 cards   (status 429!)
+#     power bi               Aracaju      10 cards
+#
+# 0 de 7 vazios. TODAS tem vaga. Ou seja: o bloqueio no datacenter do Actions
+# e real, dura MAIS que 5 segundos, e vaga esta sendo perdida todo ciclo.
+#
+# Detalhe que fecha o diagnostico: "power bi / Maceio" voltou 429 COM 10
+# cards do IP residencial. O LinkedIn avisa que esta limitando mas entrega
+# assim mesmo. No datacenter ele limita e entrega VAZIO -- por isso o status
+# nao servia como sinal (medido em 29/08) e a contagem de cards serve.
+#
+# A correcao anterior (5s) acertou a direcao e errou a dose: eu escolhi 5 por
+# chute, porque nao tinha como medir de dentro do Actions.
+#
+# ESTAS PAUSAS TAMBEM MEDEM: duas tentativas com esperas diferentes, e o log
+# diz QUAL funcionou. Se a maioria recuperar na de 10s, da pra baixar; se so
+# na de 30s, e sinal de que o bloqueio e longo e talvez a saida seja espacar
+# o ciclo inteiro em vez de repetir. Um ciclo ja da a resposta.
+PAUSAS_DE_NOVA_TENTATIVA = (10, 30)
 
 
 class LinkedInScraper(BaseScraper):
@@ -203,29 +233,35 @@ class LinkedInScraper(BaseScraper):
 
                     cards = page.query_selector_all("li")
                     if not cards and pagina == 0:
-                        # Ver PAUSA_SEGUNDA_TENTATIVA no topo do arquivo: no
-                        # Actions a busca volta vazia por rate-limit, nao por
-                        # falta de vaga. Uma segunda tentativa custa uma
-                        # requisição só nesse caso.
-                        logger.info(
-                            f"[LinkedIn] Sem resultado ({tag}) — tentando de novo em "
-                            f"{PAUSA_SEGUNDA_TENTATIVA}s."
-                        )
-                        time.sleep(PAUSA_SEGUNDA_TENTATIVA)
-                        page.goto(url, timeout=60000)
-                        time.sleep(2)
-                        cards = page.query_selector_all("li")
-                        if cards:
+                        # Ver PAUSAS_DE_NOVA_TENTATIVA no topo: no Actions a
+                        # busca volta vazia por bloqueio, não por falta de
+                        # vaga -- as 7 que falharam em 30/08 tinham 8 a 10
+                        # vagas quando repetidas de outro IP.
+                        for numero, pausa in enumerate(PAUSAS_DE_NOVA_TENTATIVA, start=2):
                             logger.info(
-                                f"[LinkedIn] Segunda tentativa recuperou {len(cards)} "
-                                f"resultado(s) ({tag}) — a primeira foi bloqueio, não vaga zero."
+                                f"[LinkedIn] Sem resultado ({tag}) — {numero}ª tentativa "
+                                f"em {pausa}s."
                             )
+                            time.sleep(pausa)
+                            page.goto(url, timeout=60000)
+                            time.sleep(2)
+                            cards = page.query_selector_all("li")
+                            if cards:
+                                logger.info(
+                                    f"[LinkedIn] {numero}ª tentativa (após {pausa}s) "
+                                    f"recuperou {len(cards)} resultado(s) ({tag}) — a "
+                                    "primeira foi bloqueio, não vaga zero."
+                                )
+                                break
 
                     if not cards:
                         if pagina == 0:
+                            total = 1 + len(PAUSAS_DE_NOVA_TENTATIVA)
                             logger.warning(
-                                f"[LinkedIn] Nenhum resultado retornado ({tag}) mesmo na "
-                                "SEGUNDA tentativa — 0 vaga real, ou bloqueio persistente."
+                                f"[LinkedIn] Nenhum resultado retornado ({tag}) em "
+                                f"{total} tentativas (até "
+                                f"{PAUSAS_DE_NOVA_TENTATIVA[-1]}s de espera) — bloqueio "
+                                "longo, ou 0 vaga real."
                             )
                         break
 

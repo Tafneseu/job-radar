@@ -168,6 +168,10 @@ class LinkedInScraper(BaseScraper):
 
     def buscar_vagas(self) -> list[Job]:
         vagas: list[Job] = []
+        # Cada item: (termo, location, remoto, max_paginas, rotulo, momento).
+        # Preenchido por _buscar_termo quando a primeira pagina volta sem card.
+        self._vazias = []
+        self._registrar_vazias = True
         for termo in self.termos_busca:
             for location in self.locations:
                 vagas.extend(self._buscar_termo(termo, location, remoto=False))
@@ -179,6 +183,8 @@ class LinkedInScraper(BaseScraper):
                     termo, location, remoto=False,
                     max_paginas=MAX_PAGINAS_CIDADE, rotulo="cidade",
                 ))
+
+        vagas.extend(self._segunda_passada(vagas))
 
         total_mercados = (
             len(self.locations) + len(self.locations_remoto_apenas)
@@ -192,6 +198,66 @@ class LinkedInScraper(BaseScraper):
         )
         return vagas
 
+    def _segunda_passada(self, vagas_da_primeira: list[Job]) -> list[Job]:
+        """Repete, no FIM do ciclo, so as buscas que voltaram sem card nenhum.
+
+        POR QUE NO FIM E NAO NA HORA (isso ja foi medido e errado duas vezes):
+        repetir depois de 5s, 10s ou 30s deu 0 recuperacao em 13 tentativas. A
+        escala em que a resposta do LinkedIn muda e de DEZENAS DE MINUTOS. O
+        ciclo inteiro dura ~25 min, entao o fim do ciclo e o momento mais tarde
+        que da pra alcancar sem esperar de graca.
+
+        MEDIDO (30-31/08), que e o que justifica o custo:
+          · os 22 pares vazios de um ciclo, repetidos isolados ~20 min depois:
+            10 voltaram com vaga (8 a 10 cards cada).
+          · esperar o rodizio trazer o termo de volta (~9h) recuperou 12 de 22,
+            MAS deixou 5 pares com vaga comprovada vazios por DOIS ciclos
+            seguidos. Ou seja: o rodizio sozinho nao basta.
+
+        SEGURA POR CONSTRUCAO: so repete busca que ja voltou zero, entao no pior
+        caso volta zero de novo e nada piorou. Custo medido: ~25 buscas extras
+        em ~375, uns 2 min num ciclo de 25.
+
+        SE MEDE SOZINHA: o log diz quantos pares voltaram, quantas vagas vieram
+        e quantas delas eram INEDITAS neste ciclo (id que a primeira passada nao
+        tinha trazido por nenhum outro termo ou cidade). Se as ineditas forem ~0
+        por alguns ciclos, esta passada nao se paga e deve ser REMOVIDA -- esse
+        e o criterio, escrito antes de ver o resultado.
+        """
+        if not self._vazias:
+            return []
+
+        self._registrar_vazias = False
+        pendentes = self._vazias
+        logger.info(
+            f"[LinkedIn] Segunda passada: repetindo {len(pendentes)} busca(s) "
+            "que voltaram vazias na primeira."
+        )
+
+        recuperadas: list[Job] = []
+        pares_que_voltaram = 0
+        for termo, location, remoto, max_paginas, rotulo, momento in pendentes:
+            minutos = (time.monotonic() - momento) / 60
+            achadas = self._buscar_termo(
+                termo, location, remoto, max_paginas=max_paginas, rotulo=rotulo
+            )
+            if achadas:
+                pares_que_voltaram += 1
+                recuperadas.extend(achadas)
+                logger.info(
+                    f"[LinkedIn] Segunda passada recuperou {len(achadas)} vaga(s) "
+                    f"em '{termo}' ({location}) apos {minutos:.0f} min — a "
+                    "primeira foi resposta instável, não vaga zero."
+                )
+
+        ja_vistos = {v.id for v in vagas_da_primeira}
+        ineditas = [v for v in recuperadas if v.id not in ja_vistos]
+        logger.info(
+            f"[LinkedIn] Segunda passada: {pares_que_voltaram}/{len(pendentes)} "
+            f"par(es) voltaram com vaga, {len(recuperadas)} vaga(s) bruta(s), "
+            f"{len(ineditas)} inédita(s) neste ciclo."
+        )
+        return ineditas
     def _buscar_termo(
         self,
         termo: str,
@@ -236,6 +302,15 @@ class LinkedInScraper(BaseScraper):
 
                     if not cards:
                         if pagina == 0:
+                            # Guarda pra segunda passada no fim do ciclo. O
+                            # getattr protege quem chama _buscar_termo direto
+                            # (scripts de medicao), e o registrar=False evita
+                            # que a propria segunda passada se re-agende.
+                            if getattr(self, "_registrar_vazias", False):
+                                self._vazias.append((
+                                    termo, location, remoto, max_paginas,
+                                    rotulo, time.monotonic(),
+                                ))
                             logger.warning(
                                 f"[LinkedIn] Nenhum resultado retornado ({tag}) — pode "
                                 "ser ausência de vaga ou resposta instável do "

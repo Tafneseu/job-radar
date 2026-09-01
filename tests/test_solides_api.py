@@ -273,8 +273,8 @@ class SolidesFalso(solides.SolidesScraper):
         )
         fila = self.respostas.get(termo, [[]])
         achadas = fila.pop(0) if fila else []
-        if not achadas and getattr(self, "_registrar_zerados", False):
-            self._zerados.append(termo)
+        if not achadas and getattr(self, "_registrar_incompletos", False):
+            self._incompletos.append(termo)
         return achadas
 
 
@@ -325,7 +325,97 @@ def test_so_devolve_vaga_inedita_no_ciclo():
 def test_cada_ciclo_recomeca_a_lista():
     s = SolidesFalso({"analista de dados": [[], []]})
     s.buscar_vagas()
-    assert s._zerados == ["analista de dados"]
+    assert s._incompletos == ["analista de dados"]
     s.respostas = {"analista de dados": [[_job(1)]]}
     s.buscar_vagas()
-    assert s._zerados == []
+    assert s._incompletos == []
+
+
+# --------- as quatro saidas que deixam o termo incompleto (01/09) ---------
+
+class _RespostaCrua:
+    def __init__(self, status, corpo=None, quebra_json=False):
+        self.status_code = status
+        self._corpo = corpo
+        self._quebra = quebra_json
+
+    def json(self):
+        if self._quebra:
+            raise ValueError("nao e json")
+        return self._corpo
+
+
+def _rodar_um_termo(monkeypatch, respostas):
+    """Roda o scraper de verdade (com a rede fingida) e devolve os incompletos."""
+    fila = list(respostas)
+
+    def get(url, params=None, timeout=None, headers=None):
+        r = fila.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    monkeypatch.setattr(solides.requests, "get", get)
+    monkeypatch.setattr(solides.time, "sleep", lambda _: None)
+    s = solides.SolidesScraper(["analista de dados"])
+    s._incompletos = []
+    s._registrar_incompletos = True
+    s._buscar_termo("analista de dados")
+    return s._incompletos
+
+
+CHEIA = {"data": {"data": [dict(VAGA_API, createdAt=HOJE.isoformat())] * 10,
+                  "count": 200, "totalPages": 20}}
+
+
+def test_status_504_marca_o_termo_como_incompleto(monkeypatch):
+    """MEDIDO no ciclo de 01/09 18:07: a Solides devolveu 504 em NOVE termos,
+    quase todos já na página 1 — a fonte fechou com 67 vagas contra ~400. A
+    primeira versão da segunda passada só anotava count=0 e deixava os 504
+    passarem: eu tinha coberto o modo de falha que descobri primeiro, não o que
+    mais doeu."""
+    assert _rodar_um_termo(monkeypatch, [_RespostaCrua(504)]) == ["analista de dados"]
+
+
+def test_504_no_meio_da_paginacao_tambem_marca(monkeypatch):
+    """'analista de dados' quebrou na PÁGINA 4: trouxe 3 páginas e perdeu 18."""
+    resp = [_RespostaCrua(200, CHEIA), _RespostaCrua(200, CHEIA), _RespostaCrua(504)]
+    assert _rodar_um_termo(monkeypatch, resp) == ["analista de dados"]
+
+
+def test_erro_de_rede_marca_o_termo(monkeypatch):
+    import requests as _req
+    erro = _req.exceptions.ConnectionError("caiu")
+    assert _rodar_um_termo(monkeypatch, [erro]) == ["analista de dados"]
+
+
+def test_resposta_nao_json_marca_o_termo(monkeypatch):
+    resp = [_RespostaCrua(200, quebra_json=True)]
+    assert _rodar_um_termo(monkeypatch, resp) == ["analista de dados"]
+
+
+def test_termo_que_terminou_bem_nao_e_marcado(monkeypatch):
+    """Última página lida até o fim: não há o que repetir."""
+    fim = {"data": {"data": [dict(VAGA_API, createdAt=HOJE.isoformat())],
+                    "count": 1, "totalPages": 1}}
+    assert _rodar_um_termo(monkeypatch, [_RespostaCrua(200, fim)]) == []
+
+
+def test_nao_marca_o_mesmo_termo_duas_vezes(monkeypatch):
+    """Repetir o termo na lista faria a segunda passada buscá-lo duas vezes."""
+    s = solides.SolidesScraper(["x"])
+    s._incompletos = []
+    s._registrar_incompletos = True
+    s._anotar_incompleto("x")
+    s._anotar_incompleto("x")
+    assert s._incompletos == ["x"]
+
+
+def test_count_zero_marca_o_termo_no_codigo_real(monkeypatch):
+    """Esta faltava, e o teste de MUTAÇÃO foi quem contou: apagar a anotação do
+    count=0 não derrubava nenhum teste. O caso estava coberto só através de um
+    dublê que substitui _buscar_termo inteiro — ou seja, o teste verificava o
+    próprio dublê, não o scraper. Aqui a rede é fingida mas o método é o de
+    produção."""
+    vazio = {"data": {"data": [], "count": 0, "totalPages": 0}}
+    assert _rodar_um_termo(monkeypatch, [_RespostaCrua(200, vazio)]) == ["analista de dados"]

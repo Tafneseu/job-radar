@@ -183,8 +183,8 @@ class SolidesScraper(BaseScraper):
     def buscar_vagas(self) -> list[Job]:
         vagas: list[Job] = []
         # Termos cuja PRIMEIRA pagina veio com count=0. Ver _segunda_passada.
-        self._zerados = []
-        self._registrar_zerados = True
+        self._incompletos = []
+        self._registrar_incompletos = True
         for termo in self.termos_busca:
             vagas.extend(self._buscar_termo(termo))
         vagas.extend(self._segunda_passada(vagas))
@@ -221,14 +221,14 @@ class SolidesScraper(BaseScraper):
         CRITERIO DE MORTE, escrito antes do resultado: se as vagas recuperadas
         ficarem em ~0 por alguns ciclos, esta passada nao se paga e sai.
         """
-        if not self._zerados:
+        if not self._incompletos:
             return []
 
-        self._registrar_zerados = False
-        pendentes = self._zerados
+        self._registrar_incompletos = False
+        pendentes = self._incompletos
         logger.info(
             f"[Solides] Segunda passada: repetindo {len(pendentes)} termo(s) "
-            "que voltaram com zero na primeira."
+            "que ficaram incompletos na primeira."
         )
 
         recuperadas: list[Job] = []
@@ -240,7 +240,7 @@ class SolidesScraper(BaseScraper):
                 recuperadas.extend(achadas)
                 logger.info(
                     f"[Solides] Segunda passada recuperou {len(achadas)} vaga(s) "
-                    f"em '{termo}' — o zero da primeira era falso."
+                    f"em '{termo}' — a primeira passada não trouxe nada."
                 )
 
         ja_vistos = {v.id for v in vagas_da_primeira}
@@ -251,6 +251,27 @@ class SolidesScraper(BaseScraper):
             f"{len(ineditas)} inédita(s) neste ciclo."
         )
         return ineditas
+
+    def _anotar_incompleto(self, termo: str) -> None:
+        """Marca um termo que terminou SEM resposta confiavel, pra segunda passada.
+
+        Sao quatro saidas diferentes com a mesma consequencia: o laco de
+        paginacao para e o termo fica pela metade (ou em nada). count=0, erro de
+        rede, status != 200 e resposta nao-JSON.
+
+        MEDIDO no ciclo de 01/09 18:07, que e o que fez esta funcao existir: a
+        Solides devolveu 504 em NOVE termos ('analista de bi', 'business
+        intelligence', 'data analyst', 'sql', 'python', 'tableau' e outros --
+        quase todos ja na PAGINA 1, ou seja, o termo trouxe zero vaga). A fonte
+        fechou o ciclo com 67 vagas contra ~400 do normal.
+
+        A versao anterior desta segunda passada so anotava count=0 e deixava os
+        504 passarem. Ou seja: eu tinha coberto o modo de falha que descobri
+        primeiro e nao o que mais doeu no dia seguinte. As quatro saidas contam
+        igual porque a consequencia e a mesma -- vaga que existe nao foi vista.
+        """
+        if getattr(self, "_registrar_incompletos", False) and termo not in self._incompletos:
+            self._incompletos.append(termo)
 
     def _buscar_termo(self, termo: str) -> list[Job]:
         logger.info(f"[Solides] Buscando: {termo}")
@@ -268,6 +289,7 @@ class SolidesScraper(BaseScraper):
                 )
             except Exception as erro:
                 logger.error(f"[Solides] Erro ao buscar '{termo}' (página {pagina}): {erro}")
+                self._anotar_incompleto(termo)
                 break
 
             if resposta.status_code != 200:
@@ -275,12 +297,14 @@ class SolidesScraper(BaseScraper):
                     f"[Solides] Status {resposta.status_code} em '{termo}' "
                     f"(página {pagina}) — resposta inesperada da API, não é busca vazia."
                 )
+                self._anotar_incompleto(termo)
                 break
 
             try:
                 corpo = resposta.json()
             except ValueError:
                 logger.warning(f"[Solides] Resposta não-JSON em '{termo}' (página {pagina}).")
+                self._anotar_incompleto(termo)
                 break
 
             dados = corpo.get("data") or {}
@@ -294,8 +318,7 @@ class SolidesScraper(BaseScraper):
                     # A API devolveu 0 pra 'analista de dados' num ciclo e 209
                     # minutos depois. Anota pra segunda passada, e o texto
                     # deixou de afirmar o que nao da pra saber.
-                    if getattr(self, "_registrar_zerados", False):
-                        self._zerados.append(termo)
+                    self._anotar_incompleto(termo)
                     logger.info(
                         f"[Solides] count=0 para '{termo}' — pode ser ausência "
                         "de vaga ou resposta instável da API; medido, não dá pra "

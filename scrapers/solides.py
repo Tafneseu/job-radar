@@ -182,10 +182,75 @@ class SolidesScraper(BaseScraper):
 
     def buscar_vagas(self) -> list[Job]:
         vagas: list[Job] = []
+        # Termos cuja PRIMEIRA pagina veio com count=0. Ver _segunda_passada.
+        self._zerados = []
+        self._registrar_zerados = True
         for termo in self.termos_busca:
             vagas.extend(self._buscar_termo(termo))
+        vagas.extend(self._segunda_passada(vagas))
         logger.info(f"[Solides] {len(vagas)} vaga(s) encontrada(s) no total")
         return vagas
+
+    def _segunda_passada(self, vagas_da_primeira: list[Job]) -> list[Job]:
+        """Repete, no fim do ciclo, so os termos que voltaram com count=0.
+
+        MEDIDO (01/09). No ciclo das 08:14 a Solides devolveu 70 vagas no total
+        contra ~400 dos ciclos anteriores, com "0 resultados reais" nos CINCO
+        termos prioritarios. Sondada minutos depois, a mesma API respondeu 200
+        com:
+
+            analista de dados     209 vagas, 21 paginas
+            analista de bi         33 vagas,  4 paginas
+            business intelligence 133 vagas, 14 paginas
+            power bi              516 vagas, 52 paginas
+            sql                   613 vagas, 62 paginas
+
+        O zero era falso. No dia anterior essa API ja tinha devolvido um 504.
+
+        POR QUE AQUI DOI MAIS QUE NO LINKEDIN: count=0 faz o laco de paginacao
+        parar no primeiro request. Um zero mentiroso nao custa uma busca --
+        custa o TERMO INTEIRO, com todas as suas paginas. Foi assim que a fonte
+        caiu de ~400 para 70 vagas sem disparar nenhum alerta: ela nao falhou,
+        ela "respondeu".
+
+        Mesmo desenho da segunda passada do LinkedIn (ver scrapers/linkedin.py),
+        que no primeiro ciclo em producao recuperou 43 vagas ineditas. Segura
+        por construcao -- so repete termo que ja voltou zero -- e barata: a API
+        responde em menos de um segundo, entao sao ~15 requisicoes no pior caso.
+
+        CRITERIO DE MORTE, escrito antes do resultado: se as vagas recuperadas
+        ficarem em ~0 por alguns ciclos, esta passada nao se paga e sai.
+        """
+        if not self._zerados:
+            return []
+
+        self._registrar_zerados = False
+        pendentes = self._zerados
+        logger.info(
+            f"[Solides] Segunda passada: repetindo {len(pendentes)} termo(s) "
+            "que voltaram com zero na primeira."
+        )
+
+        recuperadas: list[Job] = []
+        termos_que_voltaram = 0
+        for termo in pendentes:
+            achadas = self._buscar_termo(termo)
+            if achadas:
+                termos_que_voltaram += 1
+                recuperadas.extend(achadas)
+                logger.info(
+                    f"[Solides] Segunda passada recuperou {len(achadas)} vaga(s) "
+                    f"em '{termo}' — o zero da primeira era falso."
+                )
+
+        ja_vistos = {v.id for v in vagas_da_primeira}
+        ineditas = [v for v in recuperadas if v.id not in ja_vistos]
+        logger.info(
+            f"[Solides] Segunda passada: {termos_que_voltaram}/{len(pendentes)} "
+            f"termo(s) voltaram com vaga, {len(recuperadas)} vaga(s) bruta(s), "
+            f"{len(ineditas)} inédita(s) neste ciclo."
+        )
+        return ineditas
 
     def _buscar_termo(self, termo: str) -> list[Job]:
         logger.info(f"[Solides] Buscando: {termo}")
@@ -225,7 +290,17 @@ class SolidesScraper(BaseScraper):
                 total = dados.get("count", 0)
                 total_paginas = dados.get("totalPages", 0)
                 if not total:
-                    logger.info(f"[Solides] 0 resultados reais para '{termo}'.")
+                    # MEDIDO 01/09: count=0 aqui NAO quer dizer "nao ha vaga".
+                    # A API devolveu 0 pra 'analista de dados' num ciclo e 209
+                    # minutos depois. Anota pra segunda passada, e o texto
+                    # deixou de afirmar o que nao da pra saber.
+                    if getattr(self, "_registrar_zerados", False):
+                        self._zerados.append(termo)
+                    logger.info(
+                        f"[Solides] count=0 para '{termo}' — pode ser ausência "
+                        "de vaga ou resposta instável da API; medido, não dá pra "
+                        "distinguir (ver _segunda_passada)."
+                    )
                     break
 
             for item in lote:

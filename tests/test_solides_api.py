@@ -253,3 +253,79 @@ def test_acabar_as_paginas_do_termo_nao_e_estourar_a_trava(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger=solides.logger.name):
         solides.SolidesScraper(["power bi"]).buscar_vagas()
     assert not _avisou_da_trava(caplog)
+
+
+# ------------- segunda passada: o count=0 que era mentira -------------
+
+
+class SolidesFalso(solides.SolidesScraper):
+    """Troca so a ida na rede; o resto do fluxo e o de producao."""
+
+    def __init__(self, respostas):
+        super().__init__(termos_busca=list(respostas))
+        self.respostas = respostas      # {termo: [ [1a vez], [2a vez] ]}
+        self.chamadas = []
+
+    def _buscar_termo(self, termo):
+        self.chamadas.append(termo)
+        assert len(self.chamadas) <= 50, (
+            "laço infinito: a segunda passada está se re-agendando"
+        )
+        fila = self.respostas.get(termo, [[]])
+        achadas = fila.pop(0) if fila else []
+        if not achadas and getattr(self, "_registrar_zerados", False):
+            self._zerados.append(termo)
+        return achadas
+
+
+def _job(n):
+    return Job(titulo=f"Analista de Dados {n}", empresa="Empresa",
+               local="Recife - PE", link=f"https://solides.jobs/{n}", site="Solides")
+
+
+def test_sem_termo_zerado_nao_ha_segunda_passada():
+    s = SolidesFalso({"analista de dados": [[_job(1)]]})
+    s.buscar_vagas()
+    assert s.chamadas == ["analista de dados"]
+
+
+def test_repete_so_o_termo_que_voltou_zero():
+    """MEDIDO 01/09: a API devolveu count=0 pra 'analista de dados' num ciclo e
+    209 vagas minutos depois. Como count=0 para a paginação no primeiro
+    request, um zero falso custa o TERMO INTEIRO -- foi assim que a fonte caiu
+    de ~400 para 70 vagas sem disparar alerta nenhum."""
+    s = SolidesFalso({
+        "analista de dados": [[], [_job(1), _job(2)]],
+        "power bi": [[_job(3)]],
+    })
+    vagas = s.buscar_vagas()
+
+    assert s.chamadas == ["analista de dados", "power bi", "analista de dados"]
+    assert {v.id for v in vagas} == {_job(1).id, _job(2).id, _job(3).id}
+
+
+def test_a_segunda_passada_nao_repete_a_si_mesma():
+    s = SolidesFalso({"analista de dados": [[], []], "power bi": [[], []]})
+    s.buscar_vagas()
+    assert len(s.chamadas) == 4      # 2 da primeira + 2 repeticoes, e para
+
+
+def test_so_devolve_vaga_inedita_no_ciclo():
+    """Sem isto, o contador que decide se a passada se paga contaria vaga que o
+    ciclo ja tinha por outro termo."""
+    s = SolidesFalso({
+        "analista de dados": [[], [_job(1), _job(9)]],
+        "power bi": [[_job(1)]],
+    })
+    ids = [v.id for v in s.buscar_vagas()]
+    assert ids.count(_job(1).id) == 1
+    assert _job(9).id in ids
+
+
+def test_cada_ciclo_recomeca_a_lista():
+    s = SolidesFalso({"analista de dados": [[], []]})
+    s.buscar_vagas()
+    assert s._zerados == ["analista de dados"]
+    s.respostas = {"analista de dados": [[_job(1)]]}
+    s.buscar_vagas()
+    assert s._zerados == []
